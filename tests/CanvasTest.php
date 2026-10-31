@@ -281,4 +281,108 @@ class CanvasTest extends TestCase
         $this->assertEquals(50, $resized->getHeight());
     }
 
+    public function testGradientRectFill(): void
+    {
+        $canvas = new Canvas(80, 40);
+        $ctx = $canvas->getContext();
+
+        // Linear gradient (red to blue)
+        $grad = $ctx->createLinearGradient(0, 0, 80, 0);
+        $grad->addColorStop(0, '#ff0000');
+        $grad->addColorStop(1, '#0000ff');
+        $ctx->fillStyle = $grad;
+
+        // Fill rectangle with gradient
+        $ctx->fillRect(10, 10, 60, 20);
+
+        // Check pixels
+        $pixels = $canvas->toPixels();
+        $rgba = $pixels['rgba'];
+
+        // Left part of rect should have more red than blue
+        $leftPixelOffset = (20 * 80 + 20) * 4;
+        $leftR = \ord($rgba[$leftPixelOffset]);
+        $leftB = \ord($rgba[$leftPixelOffset + 2]);
+
+        // Right part should have more blue than red
+        $rightPixelOffset = (20 * 80 + 60) * 4;
+        $rightR = \ord($rgba[$rightPixelOffset]);
+        $rightB = \ord($rgba[$rightPixelOffset + 2]);
+
+        // Outside rect should be background (transparent/black)
+        $outsidePixelOffset = (5 * 80 + 5) * 4;
+        $outsideR = \ord($rgba[$outsidePixelOffset]);
+
+        $this->assertGreaterThan($leftB, $leftR, 'Left part should have more red');
+        $this->assertGreaterThan($rightR, $rightB, 'Right part should have more blue');
+        $this->assertEquals(0, $outsideR, 'Outside should be background (transparent)');
+    }
+
+    public function testPixelsActualValues(): void
+    {
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        // Fill top-left quarter with red
+        $ctx->fillStyle = '#ff0000';
+        $ctx->fillRect(0, 0, 50, 50);
+
+        // Fill bottom-right quarter with blue
+        $ctx->fillStyle = '#0000ff';
+        $ctx->fillRect(50, 50, 50, 50);
+
+        $pixels = $canvas->toPixels();
+        $rgba = $pixels['rgba'];
+
+        // Check red pixel in top-left
+        $topLeftOffset = (10 * 100 + 10) * 4;
+        $r = \ord($rgba[$topLeftOffset]);
+        $g = \ord($rgba[$topLeftOffset + 1]);
+        $b = \ord($rgba[$topLeftOffset + 2]);
+
+        $this->assertGreaterThan(200, $r);
+        $this->assertLessThan(50, $g);
+        $this->assertLessThan(50, $b);
+
+        // Check blue pixel in bottom-right
+        $bottomRightOffset = (75 * 100 + 75) * 4;
+        $r = \ord($rgba[$bottomRightOffset]);
+        $g = \ord($rgba[$bottomRightOffset + 1]);
+        $b = \ord($rgba[$bottomRightOffset + 2]);
+
+        $this->assertLessThan(50, $r);
+        $this->assertLessThan(50, $g);
+        $this->assertGreaterThan(200, $b);
+    }
+
+    public function testToDotsWithDiagonalLine(): void
+    {
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        // White background
+        $ctx->fillStyle = '#ffffff';
+        $ctx->fillRect(0, 0, 100, 100);
+
+        // Black diagonal line
+        $ctx->strokeStyle = '#000000';
+        $ctx->lineWidth = 2;
+        $ctx->beginPath();
+        $ctx->moveTo(0, 0);
+        $ctx->lineTo(100, 100);
+        $ctx->stroke();
+
+        // Get dots with 50x50 resolution
+        $dots = $canvas->toDots(50, 50);
+
+        // Count dots on along diagonal
+        $onCount = \substr_count($dots['on'], "\x01");
+
+        // Should have significant dots along diagonal
+        $this->assertGreaterThan(10, $onCount, 'Should have dots along diagonal');
+
+        // The dots output should be 50x50 grid
+        $this->assertEquals(50 * 50, \strlen($dots['on']), 'Should have 50x50 dots');
+    }
+
 }

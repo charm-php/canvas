@@ -8,7 +8,7 @@ The browser's 2D canvas API for PHP, backed by GD or Imagick.
 composer require phasync/canvas
 ```
 
-Requires PHP 8.2+ and either the `gd` or `imagick` extension.
+Requires PHP 8.2+ and the `gd` extension. The `imagick` extension is optional for input (fromImagick), but requires `gd` for rendering.
 
 ## Quick Example
 

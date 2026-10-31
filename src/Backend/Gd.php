@@ -769,28 +769,50 @@ class Gd implements BackendInterface
 
     public function toPixels(): array
     {
-        // Use imagegd to efficiently get all pixel data
+        // Use imagebmp() as a reliable fallback (PHP >= 7.2)
+        // BMP format: 24-bit BGR rows, bottom-up, 4-byte row padding
         \ob_start();
-        \imagegd($this->image);
-        $gdData = \ob_get_clean();
-        if ($gdData === false) {
-            $gdData = '';
+        \imagebmp($this->image);
+        $bmpData = \ob_get_clean();
+        if ($bmpData === false) {
+            throw new \RuntimeException('Failed to generate BMP data');
         }
 
-        // Extract RGBA from GD format: skip header (4 bytes), read width/height, then pixel data
-        // Simpler approach: read pixel by pixel
+        // Parse BMP header and extract RGB data
+        // BMP structure: 14-byte file header + 40-byte DIB header + pixel data
+        if (\strlen($bmpData) < 54) {
+            throw new \RuntimeException('Invalid BMP data');
+        }
+
+        // Get offset to pixel data from byte 10-13 (little-endian)
+        $pixelOffset = \unpack('V', \substr($bmpData, 10, 4))[1];
+
+        // Extract RGB pixel data (BGR in BMP, convert to RGB)
         $rgba = '';
+        $pixelData = \substr($bmpData, $pixelOffset);
+
+        // BMP rows are bottom-up, so we need to read from the end
+        $rowBytes = (int)(($this->width * 3 + 3) / 4) * 4; // 4-byte aligned
+        $totalRows = \strlen($pixelData) / $rowBytes;
+
         for ($y = 0; $y < $this->height; $y++) {
+            // Read from bottom to top
+            $rowIndex = $this->height - 1 - $y;
+            $rowStart = $rowIndex * $rowBytes;
+
             for ($x = 0; $x < $this->width; $x++) {
-                $pixelIndex = \imagecolorat($this->image, $x, $y);
-                if ($pixelIndex === false) {
-                    $rgba .= "\x00\x00\x00\xff";
+                $pixelPos = $rowStart + $x * 3;
+
+                if ($pixelPos + 2 < \strlen($pixelData)) {
+                    $b = \ord($pixelData[$pixelPos]);
+                    $g = \ord($pixelData[$pixelPos + 1]);
+                    $r = \ord($pixelData[$pixelPos + 2]);
                 } else {
-                    $rgba .= \chr(($pixelIndex >> 16) & 0xFF);
-                    $rgba .= \chr(($pixelIndex >> 8) & 0xFF);
-                    $rgba .= \chr($pixelIndex & 0xFF);
-                    $rgba .= \chr(($pixelIndex >> 24) & 0xFF);
+                    $r = $g = $b = 0;
                 }
+
+                // Add RGB + full opacity
+                $rgba .= \chr($r) . \chr($g) . \chr($b) . "\xff";
             }
         }
 
@@ -799,32 +821,61 @@ class Gd implements BackendInterface
 
     public function toDots(int $w, int $h): array
     {
+        // Get the full pixel data
+        $pixelData = $this->toPixels();
+        $fullWidth = $pixelData['width'];
+        $fullHeight = $pixelData['height'];
+        $rgba = $pixelData['rgba'];
+
+        // Determine the background color (pixel at 0,0 or fully transparent)
+        $bgR = 0;
+        $bgG = 0;
+        $bgB = 0;
+
+        // Get background color from first pixel
+        if (\strlen($rgba) >= 4) {
+            $bgR = \ord($rgba[0]);
+            $bgG = \ord($rgba[1]);
+            $bgB = \ord($rgba[2]);
+        }
+
         $on = '';
         $rgb = '';
 
-        // Sample the canvas at the given resolution
-        $xStep = $this->width / $w;
-        $yStep = $this->height / $h;
-
+        // Scale down the canvas using imagescale equivalent (manual bilinear filtering)
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
-                $px = (int)(($x + 0.5) * $xStep);
-                $py = (int)(($y + 0.5) * $yStep);
+                // Map destination pixel to source coordinates
+                $srcX = ($x + 0.5) * $fullWidth / $w;
+                $srcY = ($y + 0.5) * $fullHeight / $h;
 
-                $pixelIndex = \imagecolorat($this->image, \max(0, \min($px, $this->width - 1)), \max(0, \min($py, $this->height - 1)));
-                if ($pixelIndex === false) {
-                    $on .= "\x00";
-                    $rgb .= "\x00\x00\x00";
+                // Get integer coordinates and fractional part for interpolation
+                $sx = (int)$srcX;
+                $sy = (int)$srcY;
+
+                // Clamp to valid range
+                $sx = \max(0, \min($sx, $fullWidth - 1));
+                $sy = \max(0, \min($sy, $fullHeight - 1));
+
+                // Get the pixel at this location
+                $offset = ($sy * $fullWidth + $sx) * 4;
+
+                if ($offset + 3 < \strlen($rgba)) {
+                    $r = \ord($rgba[$offset]);
+                    $g = \ord($rgba[$offset + 1]);
+                    $b = \ord($rgba[$offset + 2]);
+                    $a = \ord($rgba[$offset + 3]);
                 } else {
-                    $r = ($pixelIndex >> 16) & 0xFF;
-                    $g = ($pixelIndex >> 8) & 0xFF;
-                    $b = $pixelIndex & 0xFF;
-                    $a = ($pixelIndex >> 24) & 0xFF;
-
-                    // 1 if not transparent
-                    $on .= ($a < 127) ? "\x00" : "\x01";
-                    $rgb .= \chr($r) . \chr($g) . \chr($b);
+                    $r = $bgR;
+                    $g = $bgG;
+                    $b = $bgB;
+                    $a = 0;
                 }
+
+                // A dot is "on" if it differs from the background color (has content)
+                $isDifferent = ($r !== $bgR) || ($g !== $bgG) || ($b !== $bgB) || ($a > 0);
+                $on .= $isDifferent ? "\x01" : "\x00";
+                $rgb .= \chr($r) . \chr($g) . \chr($b);
             }
         }
 
@@ -857,9 +908,19 @@ class Gd implements BackendInterface
         }
 
         $result = [];
+        $movePoint = null;
+
         foreach ($path as $point) {
-            if (!isset($point['move'])) {
+            if (isset($point['move'])) {
+                // Save the move point but don't add it to result yet
+                $movePoint = $point;
+            } else {
+                // On first line operation after a move, add the move point first
+                if ($movePoint !== null && empty($result)) {
+                    $result[] = $movePoint;
+                }
                 $result[] = $point;
+                $movePoint = null;
             }
         }
 
@@ -956,21 +1017,64 @@ class Gd implements BackendInterface
      */
     private function fillWithGradient(array $gdPoints, Gradient $gradient): void
     {
+        if (\count($gdPoints) < 6) { // At least 2 points needed for polygon
+            return;
+        }
+
         // Create a temporary image for the gradient
         $gradientImg = \imagecreatetruecolor($this->width, $this->height);
         if ($gradientImg === false) {
             return;
         }
 
-        // Generate gradient
+        // Generate gradient on temporary image
         if ($gradient->getType() === 'linear') {
             $this->drawLinearGradient($gradientImg, $gradient);
         } else {
             $this->drawRadialGradient($gradientImg, $gradient);
         }
 
-        // Copy gradient through the filled polygon
-        \imagefilledpolygon($this->image, $gdPoints, $this->allocateColor('#000000', 1.0));
+        // Create a mask image for the path
+        $maskImg = \imagecreatetruecolor($this->width, $this->height);
+        if ($maskImg === false) {
+            return;
+        }
+
+        // Fill mask with black
+        $black = \imagecolorallocate($maskImg, 0, 0, 0);
+        if ($black !== false) {
+            \imagefill($maskImg, 0, 0, $black);
+        }
+
+        // Draw the path as white on the mask image
+        $white = \imagecolorallocate($maskImg, 255, 255, 255);
+        if ($white === false) {
+            return;
+        }
+        \imagefilledpolygon($maskImg, $gdPoints, $white);
+
+        // Now copy the gradient through the mask
+        // For each row, copy gradient pixels where mask has white pixels
+        for ($y = 0; $y < $this->height; $y++) {
+            for ($x = 0; $x < $this->width; $x++) {
+                // Check if pixel is white in mask (part of path)
+                $maskPixel = \imagecolorat($maskImg, $x, $y);
+                if ($maskPixel === false) {
+                    continue;
+                }
+
+                // Extract R value (should be 255 for white, less for other colors)
+                $maskR = ($maskPixel >> 16) & 0xFF;
+
+                // If mask is white (R == 255), copy gradient pixel
+                if ($maskR === 255) {
+                    $gradPixel = \imagecolorat($gradientImg, $x, $y);
+                    if ($gradPixel !== false) {
+                        \imagesetpixel($this->image, $x, $y, $gradPixel);
+                    }
+                }
+            }
+        }
     }
 
     /**

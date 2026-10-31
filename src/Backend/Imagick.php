@@ -22,6 +22,11 @@ class Imagick implements BackendInterface
             throw new NotSupportedException('Imagick extension is not loaded');
         }
 
+        // Imagick backend requires GD for rendering in this version
+        if (!extension_loaded('gd')) {
+            throw new NotSupportedException('Imagick backend requires GD extension for rendering (native Imagick drawing not yet implemented)');
+        }
+
         $this->width = $width;
         $this->height = $height;
 
