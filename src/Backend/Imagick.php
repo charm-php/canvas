@@ -301,10 +301,10 @@ class Imagick implements BackendInterface
         return $this->gdBackend->toPixels();
     }
 
-    public function toDots(int $w, int $h): array
+    public function toDots(int $w, int $h, ?string $background = null): array
     {
         $this->syncToImagick();
-        return $this->gdBackend->toDots($w, $h);
+        return $this->gdBackend->toDots($w, $h, $background);
     }
 
     public function fromGd(\GdImage $image): void

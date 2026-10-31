@@ -819,62 +819,55 @@ class Gd implements BackendInterface
         return ['width' => $this->width, 'height' => $this->height, 'rgba' => $rgba];
     }
 
-    public function toDots(int $w, int $h): array
+    public function toDots(int $w, int $h, ?string $background = null): array
     {
-        // Get the full pixel data
-        $pixelData = $this->toPixels();
-        $fullWidth = $pixelData['width'];
-        $fullHeight = $pixelData['height'];
-        $rgba = $pixelData['rgba'];
-
-        // Determine the background color (pixel at 0,0 or fully transparent)
-        $bgR = 0;
-        $bgG = 0;
-        $bgB = 0;
-
-        // Get background color from first pixel
-        if (\strlen($rgba) >= 4) {
-            $bgR = \ord($rgba[0]);
-            $bgG = \ord($rgba[1]);
-            $bgB = \ord($rgba[2]);
+        // Scale the canvas down to the target resolution
+        $scaledImage = \imagescale($this->image, $w, $h, IMG_BILINEAR_FIXED);
+        if ($scaledImage === false) {
+            throw new \RuntimeException('Failed to scale image');
         }
 
         $on = '';
         $rgb = '';
 
-        // Scale down the canvas using imagescale equivalent (manual bilinear filtering)
+        // Parse background color if provided
+        $bgR = 0;
+        $bgG = 0;
+        $bgB = 0;
+        if ($background !== null) {
+            $bgColor = ColorParser::parseColor($background);
+            $bgR = $bgColor['r'];
+            $bgG = $bgColor['g'];
+            $bgB = $bgColor['b'];
+        }
+
+        // Read each pixel from the scaled image
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
-                // Map destination pixel to source coordinates
-                $srcX = ($x + 0.5) * $fullWidth / $w;
-                $srcY = ($y + 0.5) * $fullHeight / $h;
-
-                // Get integer coordinates and fractional part for interpolation
-                $sx = (int)$srcX;
-                $sy = (int)$srcY;
-
-                // Clamp to valid range
-                $sx = \max(0, \min($sx, $fullWidth - 1));
-                $sy = \max(0, \min($sy, $fullHeight - 1));
-
-                // Get the pixel at this location
-                $offset = ($sy * $fullWidth + $sx) * 4;
-
-                if ($offset + 3 < \strlen($rgba)) {
-                    $r = \ord($rgba[$offset]);
-                    $g = \ord($rgba[$offset + 1]);
-                    $b = \ord($rgba[$offset + 2]);
-                    $a = \ord($rgba[$offset + 3]);
-                } else {
-                    $r = $bgR;
-                    $g = $bgG;
-                    $b = $bgB;
-                    $a = 0;
+                $pixel = \imagecolorat($scaledImage, $x, $y);
+                if ($pixel === false) {
+                    $on .= "\x00";
+                    $rgb .= "\x00\x00\x00";
+                    continue;
                 }
 
-                // A dot is "on" if it differs from the background color (has content)
-                $isDifferent = ($r !== $bgR) || ($g !== $bgG) || ($b !== $bgB) || ($a > 0);
-                $on .= $isDifferent ? "\x01" : "\x00";
+                // Extract RGBA from pixel
+                $r = ($pixel >> 16) & 0xFF;
+                $g = ($pixel >> 8) & 0xFF;
+                $b = $pixel & 0xFF;
+                $a = ($pixel >> 24) & 0xFF;
+
+                // Determine if dot is "on"
+                if ($background !== null) {
+                    // If background provided, check if pixel differs from background color
+                    $isDifferent = ($r !== $bgR) || ($g !== $bgG) || ($b !== $bgB);
+                    $on .= $isDifferent ? "\x01" : "\x00";
+                } else {
+                    // Otherwise, check if pixel is not fully transparent (alpha < 127 in GD)
+                    $isDifferent = $a < 127;
+                    $on .= $isDifferent ? "\x01" : "\x00";
+                }
+
                 $rgb .= \chr($r) . \chr($g) . \chr($b);
             }
         }

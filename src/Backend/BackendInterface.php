@@ -80,7 +80,7 @@ interface BackendInterface
     public function toGd(): \GdImage;
     public function toImagick(): \Imagick;
     public function toPixels(): array;
-    public function toDots(int $w, int $h): array;
+    public function toDots(int $w, int $h, ?string $background = null): array;
 
     // Import
     public function fromGd(\GdImage $image): void;

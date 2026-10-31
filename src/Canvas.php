@@ -189,9 +189,16 @@ class Canvas
      * Get downscaled bitmap for terminal rendering.
      * @return array{width: int, height: int, on: string, rgb: string}
      */
-    public function toDots(int $w, int $h): array
+    /**
+     * Get downscaled bitmap for terminal rendering.
+     * A dot is "on" when it contains non-transparent pixels (alpha < 127).
+     * Optionally compare against a background color instead.
+     * Note: Uses imagecolorat() per dot when no background provided (performance cost).
+     * @return array{width: int, height: int, on: string, rgb: string}
+     */
+    public function toDots(int $w, int $h, ?string $background = null): array
     {
-        return $this->backend->toDots($w, $h);
+        return $this->backend->toDots($w, $h, $background);
     }
 
     /**

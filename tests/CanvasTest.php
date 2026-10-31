@@ -355,34 +355,55 @@ class CanvasTest extends TestCase
         $this->assertGreaterThan(200, $b);
     }
 
-    public function testToDotsWithDiagonalLine(): void
+    public function testToDotsEmptyCanvas(): void
     {
+        // Canvas with nothing drawn should have 0 dots on
+        $canvas = new Canvas(100, 100);
+        $dots = $canvas->toDots(10, 10);
+
+        $onCount = \substr_count($dots['on'], "\x01");
+        $this->assertEquals(0, $onCount, 'Empty canvas should have 0 dots on');
+        $this->assertEquals(100, \strlen($dots['on']), 'Should have 10x10 = 100 dots');
+    }
+
+    public function testToDotsShapeInTopLeft(): void
+    {
+        // Shape in top-left corner should only have dots there
         $canvas = new Canvas(100, 100);
         $ctx = $canvas->getContext();
 
-        // White background
-        $ctx->fillStyle = '#ffffff';
+        $ctx->fillStyle = '#ff0000';
+        $ctx->fillRect(0, 0, 25, 25);
+
+        $dots = $canvas->toDots(10, 10);
+
+        // Top-left dot (0, 0) should be on
+        $this->assertEquals("\x01", $dots['on'][0], 'Top-left dot should be on');
+
+        // Bottom-right dot (9, 9) should be off (corresponds to area 90-100)
+        $lastDotIdx = 9 * 10 + 9;
+        $this->assertEquals("\x00", $dots['on'][$lastDotIdx], 'Bottom-right dot should be off');
+
+        // Count total dots on (25x25 rect in 100x100 = 2.5x2.5 in 10x10 grid ≈ 4-9 dots)
+        $onCount = \substr_count($dots['on'], "\x01");
+        $this->assertGreaterThan(0, $onCount, 'Should have some dots on in top-left area');
+        $this->assertLessThan(50, $onCount, 'Should not have too many dots on');
+    }
+
+    public function testToDotsFilled(): void
+    {
+        // Canvas filled with color should have all dots on
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        $ctx->fillStyle = '#00ff00';
         $ctx->fillRect(0, 0, 100, 100);
 
-        // Black diagonal line
-        $ctx->strokeStyle = '#000000';
-        $ctx->lineWidth = 2;
-        $ctx->beginPath();
-        $ctx->moveTo(0, 0);
-        $ctx->lineTo(100, 100);
-        $ctx->stroke();
+        $dots = $canvas->toDots(10, 10);
 
-        // Get dots with 50x50 resolution
-        $dots = $canvas->toDots(50, 50);
-
-        // Count dots on along diagonal
+        // All dots should be on
         $onCount = \substr_count($dots['on'], "\x01");
-
-        // Should have significant dots along diagonal
-        $this->assertGreaterThan(10, $onCount, 'Should have dots along diagonal');
-
-        // The dots output should be 50x50 grid
-        $this->assertEquals(50 * 50, \strlen($dots['on']), 'Should have 50x50 dots');
+        $this->assertEquals(100, $onCount, 'Filled canvas should have all dots on');
     }
 
 }
