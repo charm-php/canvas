@@ -39,6 +39,31 @@ class Canvas
     }
 
     /**
+     * Create a Canvas from a backend instance.
+     * @param class-string<Context> $contextClass
+     */
+    public static function fromBackend(BackendInterface $backend, ?string $contextClass = null): self
+    {
+        $width = $backend->getWidth();
+        $height = $backend->getHeight();
+
+        if ($width <= 0 || $height <= 0) {
+            throw new \InvalidArgumentException('Backend dimensions must be positive');
+        }
+
+        $canvas = new self($width, $height);
+        $canvas->backend = $backend;
+
+        $contextClass ??= Context::class;
+        if (!\is_a($contextClass, Context::class, true)) {
+            throw new \InvalidArgumentException("Context class must extend Context");
+        }
+
+        $canvas->context = new $contextClass($backend);
+        return $canvas;
+    }
+
+    /**
      * Create a Canvas from a GD image resource.
      */
     public static function fromGd(\GdImage $image): self

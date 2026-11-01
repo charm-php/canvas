@@ -281,6 +281,201 @@ class CanvasTest extends TestCase
         $this->assertEquals(50, $resized->getHeight());
     }
 
+    public function testStrokeWithThinLineTransform(): void
+    {
+        // Bug 1: stroke() with lineWidth <= 1 should apply transforms
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        $ctx->strokeStyle = '#ff0000';
+        $ctx->lineWidth = 0.5;
+
+        // Draw line with scale transform
+        $ctx->save();
+        $ctx->translate(50, 50);
+        $ctx->scale(2, 2);
+        $ctx->beginPath();
+        $ctx->moveTo(-10, -10);
+        $ctx->lineTo(10, 10);
+        $ctx->stroke();
+        $ctx->restore();
+
+        $pixels = $canvas->toPixels();
+        $rgba = $pixels['rgba'];
+
+        // Check that pixels near (50, 50) + 2*10 = (70, 70) are red
+        // The scaled line should be at 50 + 2*10 = 70
+        $pixelOffset = (70 * 100 + 70) * 4;
+        $r = \ord($rgba[$pixelOffset]);
+        $this->assertGreaterThan(200, $r, 'Scaled thin line should be visible at correct position');
+    }
+
+    public function testClearRectWithTransform(): void
+    {
+        // Bug 2: clearRect should actually clear pixels (alpha blending was on)
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        // Fill with red
+        $ctx->fillStyle = '#ff0000';
+        $ctx->fillRect(0, 0, 100, 100);
+
+        // Clear a square in the middle
+        $ctx->clearRect(25, 25, 50, 50);
+
+        // Check pixels - cleared area should be transparent
+        $data = $ctx->getImageData(30, 30, 40, 40);
+        $rgba = $data['data'];
+
+        // All pixels in the cleared area should be transparent (alpha = 255 in GD = fully transparent)
+        // Each pixel is 4 bytes (RGBA)
+        $isTransparent = true;
+        for ($i = 3; $i < \strlen($rgba); $i += 4) {
+            $a = \ord($rgba[$i]);
+            // GD stores alpha as 0-127, with 127 = fully transparent
+            if ($a < 100) {
+                $isTransparent = false;
+                break;
+            }
+        }
+
+        $this->assertTrue($isTransparent, 'clearRect should clear pixels to transparent');
+    }
+
+    public function testDrawImageFromFile(): void
+    {
+        // Bug 3: drawImage should handle file paths correctly
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        // Create a simple PNG file
+        $tempCanvas = new Canvas(20, 20);
+        $tempCtx = $tempCanvas->getContext();
+        $tempCtx->fillStyle = '#00ff00';
+        $tempCtx->fillRect(0, 0, 20, 20);
+
+        $tempFile = \tempnam(\sys_get_temp_dir(), 'test_image_');
+        \file_put_contents($tempFile, $tempCanvas->toPng());
+
+        try {
+            // Draw the file-based image
+            $ctx->drawImage($tempFile, 10, 10);
+
+            $pixels = $canvas->toPixels();
+            $rgba = $pixels['rgba'];
+
+            // Check that pixels around (10, 10) are green
+            $pixelOffset = (15 * 100 + 15) * 4;
+            $r = \ord($rgba[$pixelOffset]);
+            $g = \ord($rgba[$pixelOffset + 1]);
+            $b = \ord($rgba[$pixelOffset + 2]);
+
+            $this->assertGreaterThan(200, $g, 'drawImage from file should work');
+        } finally {
+            @\unlink($tempFile);
+        }
+    }
+
+    public function testDrawImageWithTransform(): void
+    {
+        // Bug 3: drawImage should apply transforms to destination rect
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        // Create a simple source image
+        $source = new Canvas(10, 10);
+        $sourceCtx = $source->getContext();
+        $sourceCtx->fillStyle = '#ff0000';
+        $sourceCtx->fillRect(0, 0, 10, 10);
+
+        // Draw with translation
+        $ctx->save();
+        $ctx->translate(50, 50);
+        $ctx->drawImage($source->toGd(), -5, -5);
+        $ctx->restore();
+
+        $pixels = $canvas->toPixels();
+        $rgba = $pixels['rgba'];
+
+        // The image should be drawn at (50-5, 50-5) = (45, 45)
+        $pixelOffset = (45 * 100 + 45) * 4;
+        $r = \ord($rgba[$pixelOffset]);
+        $this->assertGreaterThan(200, $r, 'Translated image should be at correct position');
+    }
+
+    public function testToDotsNoSegfault(): void
+    {
+        // Bug 4: toDots should not segfault when w,h equals canvas size
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        $ctx->fillStyle = '#ff0000';
+        $ctx->fillRect(0, 0, 100, 100);
+
+        // This should not segfault
+        try {
+            $dots = $canvas->toDots(100, 100);
+            $this->assertEquals(100, $dots['width']);
+            $this->assertEquals(100, $dots['height']);
+            $this->assertEquals(10000, \strlen($dots['on']));
+        } catch (\RuntimeException $e) {
+            $this->fail('toDots with same size should not segfault: ' . $e->getMessage());
+        }
+    }
+
+    public function testToDotsExactDownsampling(): void
+    {
+        // Bug 5: toDots should use exact downsampling, not bilinear that bleeds edges
+        $canvas = new Canvas(100, 100);
+        $ctx = $canvas->getContext();
+
+        // Create a clear pattern: top-left filled (opaque), rest transparent
+        // toDots marks a dot as "on" if it has >= 50% non-transparent pixels
+
+        // Start with transparent canvas, then draw opaque pixels in top-left 50x50
+        $ctx->fillStyle = '#000000';
+        $ctx->fillRect(0, 0, 50, 50);
+
+        // Scale down to 10x10
+        $dots = $canvas->toDots(10, 10);
+
+        // Each 10x10 block in source maps to 1 dot
+        // Top-left 50x50 of source (5x5 dots) should be on
+        // Rest should be off
+
+        $onCount = 0;
+        for ($y = 0; $y < 10; $y++) {
+            for ($x = 0; $x < 10; $x++) {
+                $idx = $y * 10 + $x;
+                if ($dots['on'][$idx] === "\x01") {
+                    $onCount++;
+                }
+            }
+        }
+
+        // Approximately 25 dots should be on (5x5 block)
+        // Allow some tolerance for edge effects
+        $this->assertGreaterThan(20, $onCount, 'Top-left area should have dots on');
+        $this->assertLessThan(30, $onCount, 'Should not have too many dots on');
+    }
+
+    public function testFromBackendFactory(): void
+    {
+        // Bug 6: Canvas::fromBackend should work
+        $gd = new Canvas(50, 50);
+        $backend = $gd->toGd();
+
+        // Create a new canvas from the GD image
+        $gdBackend = new \phasync\Canvas\Backend\Gd(50, 50);
+        $gdBackend->fromGd($backend);
+
+        $canvas = Canvas::fromBackend($gdBackend);
+
+        $this->assertEquals(50, $canvas->getWidth());
+        $this->assertEquals(50, $canvas->getHeight());
+        $this->assertNotNull($canvas->getContext());
+    }
+
     public function testGradientRectFill(): void
     {
         $canvas = new Canvas(80, 40);

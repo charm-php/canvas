@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.1] - 2026-11-01
+### Fixed
+- `stroke()` with `lineWidth <= 1` now applies the current transform matrix to thin lines (previously drawn untransformed)
+- `strokeRect()` now respects the current transform matrix
+- `clearRect()` now properly clears to transparent (alpha blending was preventing transparent fills)
+- `drawImage()` now uses `imagecreatefromstring()` instead of non-existent `imagecreatefromfile()` for file paths and bytes
+- `drawImage()` now applies the current transform matrix to the destination rectangle
+- `toDots()` no longer segfaults when downsampling to the canvas's own pixel dimensions (GD 2.3.3 `imagescale` bug)
+- `toDots()` now uses exact coverage-based downsampling instead of bilinear interpolation (prevents edge bleed artifacts)
+- Added `Canvas::fromBackend()` factory method to construct a Canvas from a backend instance with optional custom Context class
+
 ## [0.1.0] - 2026-11-01
 ### Added
 - Initial release of phasync/canvas

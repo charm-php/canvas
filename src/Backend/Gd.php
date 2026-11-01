@@ -438,24 +438,49 @@ class Gd implements BackendInterface
 
     public function clearRect(float $x, float $y, float $w, float $h): void
     {
-        $x1 = (int)\ceil($x);
-        $y1 = (int)\ceil($y);
-        $x2 = (int)\floor($x + $w);
-        $y2 = (int)\floor($y + $h);
+        // Transform the rectangle corners
+        $points = [
+            ['x' => $x, 'y' => $y],
+            ['x' => $x + $w, 'y' => $y],
+            ['x' => $x + $w, 'y' => $y + $h],
+            ['x' => $x, 'y' => $y + $h],
+        ];
+        $gdPoints = $this->transformPoints($points);
+
+        // For axis-aligned transforms, convert to rectangle bounds
+        // Otherwise, use polygon clearing
+        $xs = [];
+        $ys = [];
+        for ($i = 0; $i < \count($gdPoints); $i += 2) {
+            $xs[] = $gdPoints[$i];
+            $ys[] = $gdPoints[$i + 1];
+        }
+
+        $x1 = (int)\min(...$xs);
+        $y1 = (int)\min(...$ys);
+        $x2 = (int)\max(...$xs);
+        $y2 = (int)\max(...$ys);
+
+        // Disable alpha blending so transparent fill works
+        \imagealphablending($this->image, false);
 
         // Allocate transparent color
         $transparent = \imagecolorallocatealpha($this->image, 0, 0, 0, 127);
         if ($transparent === false) {
+            \imagealphablending($this->image, true);
             return;
         }
 
-        for ($py = $y1; $py < $y2; $py++) {
-            for ($px = $x1; $px < $x2; $px++) {
+        for ($py = $y1; $py <= $y2; $py++) {
+            for ($px = $x1; $px <= $x2; $px++) {
                 if ($px >= 0 && $px < $this->width && $py >= 0 && $py < $this->height) {
                     \imagesetpixel($this->image, $px, $py, $transparent);
                 }
             }
         }
+
+        // Re-enable alpha blending
+        \imagealphablending($this->image, true);
     }
 
     public function fillText(string $text, float $x, float $y, ?float $maxWidth = null): void
@@ -514,18 +539,19 @@ class Gd implements BackendInterface
             $sourceWidth = (int)$source->getImageWidth();
             $sourceHeight = (int)$source->getImageHeight();
         } elseif (\is_string($source)) {
-            // File path or PNG bytes
+            // File path or image bytes
             if (\strlen($source) < 256 && \file_exists($source)) {
-                $sourceImage = \imagecreatefromfile($source);
+                $content = \file_get_contents($source);
+                if ($content === false) {
+                    return;
+                }
+                $sourceImage = \imagecreatefromstring($content);
                 if ($sourceImage === false) {
                     return;
                 }
             } else {
-                // Assume PNG bytes
-                $tempFile = \tempnam(\sys_get_temp_dir(), 'canvas_');
-                \file_put_contents($tempFile, $source);
-                $sourceImage = \imagecreatefromfile($tempFile);
-                @\unlink($tempFile);
+                // Assume image bytes
+                $sourceImage = \imagecreatefromstring($source);
                 if ($sourceImage === false) {
                     return;
                 }
@@ -554,16 +580,42 @@ class Gd implements BackendInterface
             [$sx, $sy, $sw, $sh, $dx, $dy, $dw, $dh] = $args;
         }
 
-        // Copy the image
+        // Transform the destination rectangle
+        $destPoints = [
+            ['x' => $dx, 'y' => $dy],
+            ['x' => $dx + $dw, 'y' => $dy],
+            ['x' => $dx + $dw, 'y' => $dy + $dh],
+            ['x' => $dx, 'y' => $dy + $dh],
+        ];
+        $gdDestPoints = $this->transformPoints($destPoints);
+
+        // For axis-aligned transforms, use imagecopyresampled directly
+        // For non-axis-aligned transforms, we would need more complex handling
+        // For now, extract the bounding box and destination position
+        $destXs = [];
+        $destYs = [];
+        for ($i = 0; $i < \count($gdDestPoints); $i += 2) {
+            $destXs[] = $gdDestPoints[$i];
+            $destYs[] = $gdDestPoints[$i + 1];
+        }
+
+        $destX = (int)\min(...$destXs);
+        $destY = (int)\min(...$destYs);
+        $destMaxX = (int)\max(...$destXs);
+        $destMaxY = (int)\max(...$destYs);
+        $destWidth = $destMaxX - $destX;
+        $destHeight = $destMaxY - $destY;
+
+        // Copy the image with resampling to preserve alpha
         \imagecopyresampled(
             $this->image,
             $sourceImage,
-            (int)$dx,
-            (int)$dy,
+            $destX,
+            $destY,
             (int)$sx,
             (int)$sy,
-            (int)$dw,
-            (int)$dh,
+            $destWidth,
+            $destHeight,
             (int)$sw,
             (int)$sh
         );
@@ -821,10 +873,12 @@ class Gd implements BackendInterface
 
     public function toDots(int $w, int $h, ?string $background = null): array
     {
-        // Scale the canvas down to the target resolution
-        $scaledImage = \imagescale($this->image, $w, $h, IMG_BILINEAR_FIXED);
-        if ($scaledImage === false) {
-            throw new \RuntimeException('Failed to scale image');
+        // Use source image directly if size matches, avoid imagescale segfault bug
+        if ($w === $this->width && $h === $this->height) {
+            $sourceImage = $this->image;
+        } else {
+            // Scale the canvas down to the target resolution with exact downsampling
+            $sourceImage = $this->downsampleImage($w, $h);
         }
 
         $on = '';
@@ -841,10 +895,10 @@ class Gd implements BackendInterface
             $bgB = $bgColor['b'];
         }
 
-        // Read each pixel from the scaled image
+        // Read each pixel from the (possibly scaled) image
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
-                $pixel = \imagecolorat($scaledImage, $x, $y);
+                $pixel = \imagecolorat($sourceImage, $x, $y);
                 if ($pixel === false) {
                     $on .= "\x00";
                     $rgb .= "\x00\x00\x00";
@@ -873,6 +927,89 @@ class Gd implements BackendInterface
         }
 
         return ['width' => $w, 'height' => $h, 'on' => $on, 'rgb' => $rgb];
+    }
+
+    /**
+     * Downsample an image using coverage-based logic.
+     * Each output dot is set when coverage >= 50% of its block are non-transparent,
+     * and the color is the average of opaque pixels in the block.
+     */
+    private function downsampleImage(int $targetW, int $targetH): \GdImage
+    {
+        $result = \imagecreatetruecolor($targetW, $targetH);
+        if ($result === false) {
+            throw new \RuntimeException('Failed to create downsampled image');
+        }
+
+        \imagesavealpha($result, true);
+        $transparent = \imagecolorallocatealpha($result, 0, 0, 0, 127);
+        if ($transparent === false) {
+            throw new \RuntimeException('Failed to allocate color');
+        }
+        \imagefill($result, 0, 0, $transparent);
+
+        // Calculate block size
+        $blockW = $this->width / $targetW;
+        $blockH = $this->height / $targetH;
+
+        for ($ty = 0; $ty < $targetH; $ty++) {
+            for ($tx = 0; $tx < $targetW; $tx++) {
+                // Calculate source block boundaries
+                $srcX1 = (int)($tx * $blockW);
+                $srcY1 = (int)($ty * $blockH);
+                $srcX2 = (int)(($tx + 1) * $blockW);
+                $srcY2 = (int)(($ty + 1) * $blockH);
+
+                // Sample pixels in this block
+                $totalR = 0;
+                $totalG = 0;
+                $totalB = 0;
+                $opaqueCount = 0;
+                $nonTransparentCount = 0;
+
+                for ($y = $srcY1; $y < $srcY2; $y++) {
+                    for ($x = $srcX1; $x < $srcX2; $x++) {
+                        $pixel = \imagecolorat($this->image, $x, $y);
+                        if ($pixel === false) {
+                            continue;
+                        }
+
+                        $a = ($pixel >> 24) & 0xFF;
+
+                        // Count non-transparent pixels
+                        if ($a < 127) {
+                            $nonTransparentCount++;
+                            $r = ($pixel >> 16) & 0xFF;
+                            $g = ($pixel >> 8) & 0xFF;
+                            $b = $pixel & 0xFF;
+
+                            $totalR += $r;
+                            $totalG += $g;
+                            $totalB += $b;
+                            $opaqueCount++;
+                        }
+                    }
+                }
+
+                $blockSize = ($srcX2 - $srcX1) * ($srcY2 - $srcY1);
+                $coverage = $blockSize > 0 ? $nonTransparentCount / $blockSize : 0;
+
+                if ($coverage >= 0.5 && $opaqueCount > 0) {
+                    // Block is "on" - compute average color
+                    $avgR = (int)($totalR / $opaqueCount);
+                    $avgG = (int)($totalG / $opaqueCount);
+                    $avgB = (int)($totalB / $opaqueCount);
+
+                    $color = \imagecolorallocatealpha($result, $avgR, $avgG, $avgB, 0);
+                    if ($color !== false) {
+                        \imagesetpixel($result, $tx, $ty, $color);
+                    }
+                }
+                // else: leave as transparent (already filled above)
+            }
+        }
+
+        return $result;
     }
 
     public function fromGd(\GdImage $image): void
@@ -961,13 +1098,18 @@ class Gd implements BackendInterface
 
         $color = $this->allocateColor($color, $alpha);
 
-        // Draw with thickness
-        if ($lineWidth <= 1) {
-            for ($i = 0; $i < \count($points) - 1; $i++) {
-                $x1 = (int)\round($points[$i]['x']);
-                $y1 = (int)\round($points[$i]['y']);
-                $x2 = (int)\round($points[$i + 1]['x']);
-                $y2 = (int)\round($points[$i + 1]['y']);
+        // Transform points first - returns flat array [x1, y1, x2, y2, ...]
+        $transformedFlat = $this->transformPoints($points);
+
+        // Draw with thickness (lineWidth is in user units, never thinner than 1 pixel)
+        $effectiveLineWidth = \max(1, $lineWidth);
+
+        if ($effectiveLineWidth <= 1) {
+            for ($i = 0; $i < \count($transformedFlat) - 3; $i += 2) {
+                $x1 = (int)\round($transformedFlat[$i]);
+                $y1 = (int)\round($transformedFlat[$i + 1]);
+                $x2 = (int)\round($transformedFlat[$i + 2]);
+                $y2 = (int)\round($transformedFlat[$i + 3]);
 
                 \imageline($this->image, $x1, $y1, $x2, $y2, $color);
             }
