@@ -385,8 +385,14 @@ final class Path
                 }
             }
             $count = intdiv(count($pts), 2);
-            if ($count >= 2) {
-                $out[] = ['pts' => $pts, 'closed' => (bool) $sub['closed']];
+            if ($count >= 1) {
+                $out[] = [
+                    'pts' => $pts,
+                    'closed' => (bool) $sub['closed'],
+                    // A subpath that was given a segment of zero length still
+                    // has a cap to draw; one that only had moveTo does not.
+                    'dot' => $count === 1 && $sub['segs'] !== [],
+                ];
             }
         }
         return $out;

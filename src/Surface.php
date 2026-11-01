@@ -113,11 +113,16 @@ final class Surface
                     return;
                 }
                 $base = $y * $w;
+                $clip = $this->clip;
                 foreach ($cov as $x => $coverage) {
                     if ($x < 0 || $x >= $w || $coverage <= 0.0) {
                         continue;
                     }
                     $idx = $base + $x;
+                    if ($clip !== null) {
+                        // Clearing is limited to the clipped part of a pixel.
+                        $coverage *= \ord($clip[$idx]) / 255;
+                    }
                     $coverage = min(1.0, $coverage);
                     if ($coverage >= 1.0) {
                         $this->px[$idx] = 0x00000000;
@@ -336,26 +341,44 @@ final class Surface
     /** Clear to transparent black, honouring no other drawing state. */
     public function clearRectDevice(float $x, float $y, float $w, float $h): void
     {
-        $this->rectRegion($x, $y, $w, $h, function (int $idx, float $fx, float $fy): void {
-            if ($fx >= 1.0 && $fy >= 1.0) {
-                $this->px[$idx] = 0x00000000;
-                return;
+        // A browser clears whole pixels: the device rectangle is rounded to
+        // the nearest pixel edge and no antialiasing is applied, and the
+        // current clipping region limits how far the clear reaches.
+        $x0 = (int) floor($x + 0.5);
+        $y0 = (int) floor($y + 0.5);
+        $x1 = (int) floor($x + $w + 0.5);
+        $y1 = (int) floor($y + $h + 0.5);
+        if ($x1 < $x0) {
+            $t = $x0;
+            $x0 = $x1;
+            $x1 = $t;
+        }
+        if ($y1 < $y0) {
+            $t = $y0;
+            $y0 = $y1;
+            $y1 = $t;
+        }
+        $clip = $this->clip;
+        for ($py = max(0, $y0); $py < min($this->height, $y1); $py++) {
+            $base = $py * $this->width;
+            for ($px = max(0, $x0); $px < min($this->width, $x1); $px++) {
+                $idx = $base + $px;
+                $cm = $clip === null ? 255 : \ord($clip[$idx]);
+                if ($cm === 0) {
+                    continue;
+                }
+                if ($cm === 255) {
+                    $this->px[$idx] = 0x00000000;
+                    continue;
+                }
+                $d = $this->px[$idx];
+                $a = (int) round((($d >> 24) & 0xFF) * (1 - $cm / 255));
+                $this->px[$idx] = ($a << 24)
+                    | (($d >> 16) & 0xFF0000)
+                    | (($d >> 8) & 0xFF00)
+                    | ($d & 0xFF);
             }
-            // Partial coverage clears proportionally, which is what an
-            // antialiased clear of a fractional rectangle does.
-            $d = $this->px[$idx];
-            $a = (($d >> 24) & 0xFF) / 255;
-            $keep = 1.0 - $fx * $fy;
-            $na = $a * $keep;
-            if ($na <= 0.0) {
-                $this->px[$idx] = 0x00000000;
-                return;
-            }
-            $r = ($d >> 16) & 0xFF;
-            $g = ($d >> 8) & 0xFF;
-            $b = $d & 0xFF;
-            $this->px[$idx] = self::packBytes($r, $g, $b, (int) round($na * 255));
-        });
+        }
     }
 
     /**

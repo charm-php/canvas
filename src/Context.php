@@ -468,8 +468,9 @@ class Context
     {
         if ($this->ctm->isAxisAligned()) {
             $r = $this->ctm->mapAxisRect($x, $y, $w, $h);
-            // clearRect is not affected by the clip region, globalAlpha or
-            // the composite operation.
+            // clearRect ignores globalAlpha, the fill style and the composite
+            // operation; it is rounded to whole pixels and limited by the
+            // clipping region, as browsers do.
             $this->surface->clearRectDevice($r['x'], $r['y'], $r['w'], $r['h']);
             return;
         }

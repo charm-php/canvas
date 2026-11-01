@@ -19,6 +19,7 @@ final class Stroker
     private float $half;
     private string $cap;
     private string $join;
+    private bool $dot = false;
     private float $miterLimit;
     /** @var list<float> */
     private array $dash;
@@ -82,6 +83,7 @@ final class Stroker
                 }
                 continue;
             }
+            $this->dot = (bool) ($line['dot'] ?? false);
             $this->pieceOutline($pts, $closed, $out);
         }
         return $out;
@@ -173,6 +175,9 @@ final class Stroker
         if ($n === 1 && !$closed) {
             // A subpath with no length: a round cap makes a dot, a square cap
             // a square, a butt cap nothing at all.
+            if (!$this->dot) {
+                return;
+            }
             $h = $this->half;
             if ($this->cap === 'round') {
                 $out[] = self::circle($pts[0], $pts[1], $h);
@@ -183,6 +188,9 @@ final class Stroker
             return;
         }
         $caps = !$closed;
+        // Whether this is a true ring (a closed shape with area) rather than a
+        // band; a closed subpath enclosing no area is a band.
+        $ring = $closed;
         if ($closed) {
             $area = 0.0;
             for ($i = 0; $i < $n; $i++) {
@@ -194,6 +202,7 @@ final class Stroker
                 // back — strokes as a plain band: open geometry, no caps.
                 $closed = false;
                 $caps = false;
+                $ring = false;
             }
         }
         $segCount = $closed ? $n : $n - 1;
@@ -337,6 +346,24 @@ final class Stroker
         }
 
         if (count($plus) < 4 || count($minus) < 4) {
+            return;
+        }
+
+        if ($ring) {
+            // A closed piece has two closed loops — outside and inside — and
+            // they are separate polygons. Joining them into one ring would cut
+            // a bridge across the shape and lose an edge.
+            $inner = [];
+            for ($i = intdiv(count($minus), 2) - 1; $i >= 0; $i--) {
+                $inner[] = $minus[$i * 2];
+                $inner[] = $minus[$i * 2 + 1];
+            }
+            if (intdiv(count($plus), 2) >= 3) {
+                $out[] = $plus;
+            }
+            if (intdiv(count($inner), 2) >= 3) {
+                $out[] = $inner;
+            }
             return;
         }
 
