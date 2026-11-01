@@ -249,12 +249,10 @@ final class Stroker
                 }
                 $px = $x + $d[0] * $shift;
                 $py = $y + $d[1] * $shift;
-                if ($atEnd || $din !== null) {
-                    $plus[] = $px + $d[1] * $this->half;
-                    $plus[] = $py - $d[0] * $this->half;
-                    $minus[] = $px - $d[1] * $this->half;
-                    $minus[] = $py + $d[0] * $this->half;
-                }
+                $plus[] = $px + $d[1] * $this->half;
+                $plus[] = $py - $d[0] * $this->half;
+                $minus[] = $px - $d[1] * $this->half;
+                $minus[] = $py + $d[0] * $this->half;
                 continue;
             }
 

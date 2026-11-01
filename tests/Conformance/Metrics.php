@@ -146,12 +146,8 @@ final class Metrics
      */
     public static function asciiMap(string $php, string $chrome, int $w, int $h, int $tol = 16, int $maxW = 96, int $maxH = 40): string
     {
-        $sx = intdiv(max(1, $w), $maxW) + (int) ($w % $maxW > 0);
-        $sy = intdiv(max(1, $h), $maxH) + (int) ($h % $maxH > 0);
-        $sx = max(1, $sx);
-        $sy = max(1, $sy);
-        $bw = (int) ceil($w / $sx);
-        $bh = (int) ceil($h / $sy);
+        $bw = max(1, intdiv($w + $maxW - 1, $maxW));
+        $bh = max(1, intdiv($h + $maxH - 1, $maxH));
 
         $rank = [' ' => 0, '-' => 1, '.' => 2, '+' => 3, '#' => 4];
         $lines = [];
