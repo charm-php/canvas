@@ -310,6 +310,37 @@ class CanvasTest extends TestCase
         $this->assertGreaterThan(200, $r, 'Scaled thin line should be visible at correct position');
     }
 
+    public function testFractionalLineWidthIsScaledToPixels(): void
+    {
+        // A 0.25-unit line under scale(8, 16) is 2 px wide (vertical) and 4 px tall (horizontal), not 1 px
+        $canvas = new Canvas(80, 64);
+        $ctx = $canvas->getContext();
+        $ctx->scale(8, 16);
+        $ctx->strokeStyle = '#ff0000';
+        $ctx->lineWidth = 0.25;
+        $ctx->beginPath();
+        $ctx->moveTo(1, 0.5);
+        $ctx->lineTo(1, 3.5);
+        $ctx->lineTo(9, 3.5);
+        $ctx->stroke();
+
+        $im = \imagecreatefromstring($canvas->toPng());
+        $opaque = 0;
+        for ($y = 0; $y < 64; $y++) {
+            for ($x = 0; $x < 80; $x++) {
+                if ((\imagecolorat($im, $x, $y) >> 24) < 127) {
+                    $opaque++;
+                }
+            }
+        }
+        $this->assertGreaterThan(250, $opaque, 'the line has its scaled width');
+
+        // and it survives the downsampling to Braille dots (4x4 pixels per dot)
+        $dots = $canvas->toDots(20, 16);
+        $on = \substr_count($dots['on'], "\x01");
+        $this->assertGreaterThanOrEqual(12 + 16, $on, 'a thin line under scale still shows as dots: 12 down, 16 across');
+    }
+
     public function testClearRectWithTransform(): void
     {
         // Bug 2: clearRect should actually clear pixels (alpha blending was on)

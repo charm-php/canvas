@@ -1101,10 +1101,11 @@ class Gd implements BackendInterface
         // Transform points first - returns flat array [x1, y1, x2, y2, ...]
         $transformedFlat = $this->transformPoints($points);
 
-        // Draw with thickness (lineWidth is in user units, never thinner than 1 pixel)
-        $effectiveLineWidth = \max(1, $lineWidth);
+        // lineWidth is in user units; the transform's scale makes it pixels, never thinner than 1 pixel
+        $t = $this->transform;
+        $pixelWidth = $lineWidth * \sqrt(\abs($t['a'] * $t['d'] - $t['b'] * $t['c']));
 
-        if ($effectiveLineWidth <= 1) {
+        if ($pixelWidth <= 1) {
             for ($i = 0; $i < \count($transformedFlat) - 3; $i += 2) {
                 $x1 = (int)\round($transformedFlat[$i]);
                 $y1 = (int)\round($transformedFlat[$i + 1]);

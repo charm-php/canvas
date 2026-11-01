@@ -3,6 +3,7 @@
 ## [0.1.1] - 2026-11-01
 ### Fixed
 - `stroke()` with `lineWidth <= 1` now applies the current transform matrix to thin lines (previously drawn untransformed)
+- A fractional `lineWidth` under `scale()` is drawn at its scaled width in pixels (a 0.25-unit line under `scale(8, 16)` is 2-4 px, not 1 px)
 - `strokeRect()` now respects the current transform matrix
 - `clearRect()` now properly clears to transparent (alpha blending was preventing transparent fills)
 - `drawImage()` now uses `imagecreatefromstring()` instead of non-existent `imagecreatefromfile()` for file paths and bytes
