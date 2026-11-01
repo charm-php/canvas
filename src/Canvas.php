@@ -2,263 +2,313 @@
 
 namespace phasync\Canvas;
 
-use phasync\Canvas\Backend\BackendInterface;
-use phasync\Canvas\Backend\Gd;
-use phasync\Canvas\Backend\Imagick;
+use phasync\Canvas\Codec\CodecInterface;
+use phasync\Canvas\Codec\GdCodec;
 
 /**
- * Canvas represents a drawing surface compatible with the browser's Canvas API.
+ * A drawing surface: the canvas element of the browser model.
+ *
+ * Pixels live in a Surface; getting them in and out of files and native image
+ * objects is the codec's job.
  */
 class Canvas
 {
-    /**
-     * @var ?class-string<BackendInterface>
-     */
-    public static ?string $backendClass = null;
+    /** @var class-string<CodecInterface>|null */
+    public static ?string $codecClass = null;
 
-    private BackendInterface $backend;
-    private int $width;
-    private int $height;
-    private Context $context;
+    private Surface $surface;
+    private CodecInterface $codec;
+    private ?Context $context = null;
 
-    /**
-     * Create a new canvas with the given dimensions.
-     */
     public function __construct(int $width, int $height)
     {
         if ($width <= 0 || $height <= 0) {
             throw new \InvalidArgumentException('Canvas dimensions must be positive');
         }
-
-        $this->width = $width;
-        $this->height = $height;
-
-        $backendClass = self::$backendClass ?? $this->selectBackend();
-        $this->backend = new $backendClass($width, $height);
-        $this->context = new Context($this->backend);
+        $this->codec = self::makeCodec();
+        $this->surface = new Surface($width, $height);
     }
 
-    /**
-     * Create a Canvas from a backend instance.
-     * @param class-string<Context> $contextClass
-     */
-    public static function fromBackend(BackendInterface $backend, ?string $contextClass = null): self
+    private static function makeCodec(): CodecInterface
     {
-        $width = $backend->getWidth();
-        $height = $backend->getHeight();
-
-        if ($width <= 0 || $height <= 0) {
-            throw new \InvalidArgumentException('Backend dimensions must be positive');
+        $class = self::$codecClass ?? GdCodec::class;
+        if (!method_exists($class, 'isAvailable') || !$class::isAvailable()) {
+            throw new NotSupportedException("Image backend $class is not available on this system");
         }
+        return new $class();
+    }
 
-        $canvas = new self($width, $height);
-        $canvas->backend = $backend;
+    // -----------------------------------------------------------------
+    // Construction
+    // -----------------------------------------------------------------
 
-        $contextClass ??= Context::class;
-        if (!\is_a($contextClass, Context::class, true)) {
-            throw new \InvalidArgumentException("Context class must extend Context");
-        }
-
-        $canvas->context = new $contextClass($backend);
+    public static function fromSurface(Surface $surface): self
+    {
+        $canvas = new self($surface->width, $surface->height);
+        $canvas->surface = $surface;
         return $canvas;
     }
 
-    /**
-     * Create a Canvas from a GD image resource.
-     */
-    public static function fromGd(\GdImage $image): self
+    /** Decode encoded image bytes (PNG, JPEG, GIF, WebP, BMP, …). */
+    public static function fromBytes(string $bytes): self
     {
-        $canvas = new self(\imagesx($image), \imagesy($image));
-        $canvas->backend->fromGd($image);
-        return $canvas;
-    }
-
-    /**
-     * Create a Canvas from an Imagick instance.
-     */
-    public static function fromImagick(\Imagick $imagick): self
-    {
-        if (!extension_loaded('imagick')) {
-            throw new NotSupportedException('Imagick extension is not loaded');
+        $surface = self::makeCodec()->decode($bytes);
+        if ($surface === null) {
+            throw new \RuntimeException('Unable to decode image data');
         }
-
-        $canvas = new self(
-            (int)$imagick->getImageWidth(),
-            (int)$imagick->getImageHeight()
-        );
-        $canvas->backend->fromImagick($imagick);
-        return $canvas;
+        return self::fromSurface($surface);
     }
 
-    /**
-     * Create a Canvas from a file (PNG, JPEG, GIF, WebP).
-     */
     public static function fromFile(string $path): self
     {
-        if (!file_exists($path)) {
-            throw new \RuntimeException("File not found: $path");
+        if (!\is_file($path) || !\is_readable($path)) {
+            throw new \RuntimeException("File not found or unreadable: $path");
         }
-
-        $backendClass = self::$backendClass ?? self::selectBackendStatic();
-
-        if ($backendClass === Gd::class || $backendClass === null) {
-            try {
-                $image = \imagecreatefromfile($path);
-                if ($image === false) {
-                    throw new \RuntimeException("Failed to load image from file: $path");
-                }
-                return self::fromGd($image);
-            } catch (\Exception $e) {
-                if ($backendClass === Gd::class) {
-                    throw $e;
-                }
-                // Fall through to Imagick
-            }
+        $bytes = \file_get_contents($path);
+        if ($bytes === false) {
+            throw new \RuntimeException("Unable to read file: $path");
         }
-
-        if ($backendClass === Imagick::class || $backendClass === null) {
-            if (!extension_loaded('imagick')) {
-                throw new NotSupportedException('Neither GD nor Imagick could load the image');
-            }
-            $imagick = new \Imagick($path);
-            return self::fromImagick($imagick);
-        }
-
-        throw new NotSupportedException('No suitable backend to load image');
+        return self::fromBytes($bytes);
     }
 
-    /**
-     * Create a Canvas from PNG bytes.
-     */
     public static function fromPng(string $bytes): self
     {
-        $tempFile = \tempnam(\sys_get_temp_dir(), 'canvas_');
-        if ($tempFile === false) {
-            throw new \RuntimeException('Failed to create temporary file');
-        }
-
-        try {
-            \file_put_contents($tempFile, $bytes);
-            return self::fromFile($tempFile);
-        } finally {
-            @\unlink($tempFile);
-        }
+        return self::fromBytes($bytes);
     }
 
-    /**
-     * Get the 2D rendering context.
-     */
-    public function getContext(): Context
+    public static function fromGd(\GdImage $image): self
     {
+        return self::fromSurface(self::makeCodec()->fromGdImage($image));
+    }
+
+    public static function fromImagick(\Imagick $imagick): self
+    {
+        return self::fromSurface(self::makeCodec()->fromImagick($imagick));
+    }
+
+    // -----------------------------------------------------------------
+    // Element surface
+    // -----------------------------------------------------------------
+
+    /**
+     * getContext('2d') — the only context type this library implements.
+     * Unknown types return null, exactly as a browser does for WebGL here.
+     *
+     * @param array{alpha?:bool, desynchronized?:bool, colorSpace?:string} $options
+     */
+    public function getContext(?string $type = '2d', array $options = []): ?Context
+    {
+        if ($type !== null && !\in_array(\strtolower($type), ['2d', '2dlayer'], true)) {
+            return null;
+        }
+        if ($this->context === null) {
+            $this->context = new Context($this->surface);
+        }
         return $this->context;
     }
 
+    public function __get(string $name): mixed
+    {
+        return match ($name) {
+            'width' => $this->surface->width,
+            'height' => $this->surface->height,
+            default => throw new \InvalidArgumentException("Unknown property: $name"),
+        };
+    }
+
     /**
-     * Get the width of the canvas.
+     * Assigning width or height resizes the surface and clears it, and resets
+     * the drawing state, as the canvas element does.
      */
+    public function __set(string $name, mixed $value): void
+    {
+        match ($name) {
+            'width' => $this->resizeTo((int) $value, $this->surface->height),
+            'height' => $this->resizeTo($this->surface->width, (int) $value),
+            default => throw new \InvalidArgumentException("Unknown property: $name"),
+        };
+    }
+
+    private function resizeTo(int $width, int $height): void
+    {
+        if ($width <= 0 || $height <= 0) {
+            return; // browsers ignore non-positive sizes
+        }
+        $this->surface = new Surface($width, $height);
+        $this->context = null;
+    }
+
     public function getWidth(): int
     {
-        return $this->width;
+        return $this->surface->width;
     }
 
-    /**
-     * Get the height of the canvas.
-     */
     public function getHeight(): int
     {
-        return $this->height;
+        return $this->surface->height;
     }
 
-    /**
-     * Export the canvas as PNG bytes.
-     */
+    public function surface(): Surface
+    {
+        return $this->surface;
+    }
+
+    public function codec(): CodecInterface
+    {
+        return $this->codec;
+    }
+
+    /** canvas.reset(): clear and restore the default drawing state. */
+    public function reset(): void
+    {
+        $this->surface->clear();
+        $this->context = null;
+    }
+
+    // -----------------------------------------------------------------
+    // Output
+    // -----------------------------------------------------------------
+
     public function toPng(): string
     {
-        return $this->backend->toPng();
+        return $this->codec->encodePng($this->surface);
     }
 
-    /**
-     * Export the canvas as JPEG bytes.
-     */
     public function toJpeg(int $quality = 90): string
     {
-        return $this->backend->toJpeg($quality);
+        return $this->codec->encodeJpeg($this->surface, $quality);
     }
 
-    /**
-     * Get the underlying GD image.
-     */
+    /** toDataURL('image/png'|'image/jpeg', quality) */
+    public function toDataURL(string $mime = 'image/png', ?float $quality = null): string
+    {
+        $mime = \strtolower($mime);
+        if ($mime === 'image/jpeg' || $mime === 'image/jpg') {
+            return 'data:image/jpeg;base64,' . \base64_encode($this->toJpeg((int) round(($quality ?? 0.92) * 100)));
+        }
+        if ($mime !== 'image/png' && $mime !== '') {
+            throw new \InvalidArgumentException("Unsupported data URL type: $mime");
+        }
+        return 'data:image/png;base64,' . \base64_encode($this->toPng());
+    }
+
     public function toGd(): \GdImage
     {
-        return $this->backend->toGd();
+        return $this->codec->toGdImage($this->surface);
     }
 
-    /**
-     * Get the underlying Imagick instance.
-     */
     public function toImagick(): \Imagick
     {
-        return $this->backend->toImagick();
+        return $this->codec->toImagick($this->surface);
     }
 
     /**
-     * Get raw RGBA pixel data.
-     * @return array{width: int, height: int, rgba: string}
+     * Raw RGBA bytes, one row after another, alpha last — the same layout as a
+     * browser's ImageData.
+     *
+     * @return array{width:int,height:int,rgba:string}
      */
     public function toPixels(): array
     {
-        return $this->backend->toPixels();
+        return [
+            'width' => $this->surface->width,
+            'height' => $this->surface->height,
+            'rgba' => $this->surface->toRgbaString(),
+        ];
     }
 
     /**
-     * Get downscaled bitmap for terminal rendering.
-     * @return array{width: int, height: int, on: string, rgb: string}
-     */
-    /**
-     * Get downscaled bitmap for terminal rendering.
-     * A dot is "on" when it contains non-transparent pixels (alpha < 127).
-     * Optionally compare against a background color instead.
-     * Note: Uses imagecolorat() per dot when no background provided (performance cost).
-     * @return array{width: int, height: int, on: string, rgb: string}
+     * Downsample for terminal rendering.
+     *
+     * Each dot reports whether anything was painted in its block and the
+     * average colour of the painted pixels in it.
+     *
+     * @return array{width:int,height:int,on:string,rgb:string}
      */
     public function toDots(int $w, int $h, ?string $background = null): array
     {
-        return $this->backend->toDots($w, $h, $background);
-    }
+        if ($w <= 0 || $h <= 0) {
+            throw new \InvalidArgumentException('toDots requires positive dimensions');
+        }
+        $sw = $this->surface->width;
+        $sh = $this->surface->height;
+        $on = '';
+        $rgb = '';
+        $bg = $background === null ? null : ColorParser::parseNormalized($background);
 
-    /**
-     * Create a resized copy of this canvas.
-     */
-    public function resize(int $w, int $h): Canvas
-    {
-        $resized = new Canvas($w, $h);
-        $resized->getContext()->drawImage($this, 0, 0, $this->width, $this->height, 0, 0, $w, $h);
-        return $resized;
-    }
+        for ($ty = 0; $ty < $h; $ty++) {
+            $y0 = (int) floor($ty * $sh / $h);
+            $y1 = max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h));
+            for ($tx = 0; $tx < $w; $tx++) {
+                $x0 = (int) floor($tx * $sw / $w);
+                $x1 = max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w));
 
-    /**
-     * Select the best available backend.
-     * @return class-string<BackendInterface>
-     */
-    private function selectBackend(): string
-    {
-        return self::selectBackendStatic();
-    }
+                $r = $g = $b = 0.0;
+                $weight = 0.0;
+                for ($y = $y0; $y < min($sh, $y1); $y++) {
+                    for ($x = $x0; $x < min($sw, $x1); $x++) {
+                        $p = $this->surface->getPixel($x, $y);
+                        $a = $bg === null
+                            ? $p[3]
+                            : (min(abs($p[0] - $bg[0]), 1.0) + min(abs($p[1] - $bg[1]), 1.0) + min(abs($p[2] - $bg[2]), 1.0)) / 3.0;
+                        if ($a <= 0.0) {
+                            continue;
+                        }
+                        $r += $p[0] * $a;
+                        $g += $p[1] * $a;
+                        $b += $p[2] * $a;
+                        $weight += $a;
+                    }
+                }
 
-    /**
-     * Select the best available backend (static version).
-     * @return class-string<BackendInterface>
-     */
-    private static function selectBackendStatic(): string
-    {
-        if (extension_loaded('gd')) {
-            return Gd::class;
+                if ($weight <= 0.0) {
+                    $on .= "\0";
+                    $rgb .= "\0\0\0";
+                    continue;
+                }
+                $on .= "\1";
+                $rgb .= \chr((int) round($r / $weight * 255))
+                    . \chr((int) round($g / $weight * 255))
+                    . \chr((int) round($b / $weight * 255));
+            }
         }
 
-        if (extension_loaded('imagick')) {
-            return Imagick::class;
-        }
+        return ['width' => $w, 'height' => $h, 'on' => $on, 'rgb' => $rgb];
+    }
 
-        throw new NotSupportedException('Neither GD nor Imagick extension is loaded');
+    // -----------------------------------------------------------------
+    // Derived canvases
+    // -----------------------------------------------------------------
+
+    /** A copy of this canvas at the same size. */
+    public function copy(): self
+    {
+        $clone = new self($this->surface->width, $this->surface->height);
+        $clone->surface = $this->surface->readRect(0, 0, $this->surface->width, $this->surface->height);
+        return $clone;
+    }
+
+    /**
+     * A copy scaled to the given size, drawn through the same resampling the
+     * canvas uses for images.
+     */
+    public function resize(int $w, int $h): self
+    {
+        if ($w <= 0 || $h <= 0) {
+            throw new \InvalidArgumentException('resize requires positive dimensions');
+        }
+        $out = new self($w, $h);
+        $out->getContext()->drawImage(
+            $this,
+            0,
+            0,
+            $this->surface->width,
+            $this->surface->height,
+            0,
+            0,
+            $w,
+            $h,
+        );
+        return $out;
     }
 }
