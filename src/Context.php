@@ -612,6 +612,18 @@ class Context
             return;
         }
 
+        // A negative destination size names the same rectangle as the positive
+        // one, and the image is drawn upright in it.  This is what browsers do;
+        // the specification's mirroring wording is not what Chrome implements.
+        if ($dw < 0.0) {
+            $dx += $dw;
+            $dw = -$dw;
+        }
+        if ($dh < 0.0) {
+            $dy += $dh;
+            $dh = -$dh;
+        }
+
         // A source rectangle that runs off the image is cropped, with the
         // destination rectangle shrunk by the same proportion.
         if ($sx < 0.0) {
@@ -649,6 +661,28 @@ class Context
             ->scaled($dw / $srcW, $dh / $srcH)
             ->translated(-$sx, -$sy);
 
+        // An unfiltered one-to-one copy is snapped to whole pixels, exactly as
+        // a browser's unscaled drawImage is: no resampling, no half-pixel fade.
+        $snap = $this->imageSmoothingEnabled
+            && $matrix->b == 0.0
+            && $matrix->c == 0.0
+            && abs(abs($matrix->a) - 1.0) < 1e-9
+            && abs(abs($matrix->d) - 1.0) < 1e-9
+            && $sx == floor($sx)
+            && $sy == floor($sy)
+            && $srcW == floor($srcW)
+            && $srcH == floor($srcH);
+        if ($snap) {
+            $matrix = new Matrix(
+                $matrix->a,
+                0.0,
+                0.0,
+                $matrix->d,
+                (float) (int) round($matrix->e),
+                (float) (int) round($matrix->f),
+            );
+        }
+
         $this->surface->blitAffine(
             $src,
             $matrix,
@@ -656,6 +690,7 @@ class Context
             $this->imageSmoothingEnabled,
             $this->globalCompositeOperation,
             [$sx, $sy, $sx + $srcW, $sy + $srcH],
+            $snap,
         );
     }
 

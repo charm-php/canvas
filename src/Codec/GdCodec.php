@@ -56,8 +56,7 @@ final class GdCodec implements CodecInterface
             for ($x = 0; $x < $w; $x++) {
                 $c = \imagecolorat($image, $x, $y);
                 $gdAlpha = ($c >> 24) & 0x7F;
-                $a = 127 - $gdAlpha;
-                $packed[] = (($a * 2) << 24)
+                $packed[] = ((int) round((127 - $gdAlpha) * 255 / 127) << 24)
                     | (($c >> 16) & 0xFF) << 16
                     | (($c >> 8) & 0xFF) << 8
                     | ($c & 0xFF);

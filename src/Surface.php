@@ -514,6 +514,7 @@ final class Surface
         bool $smooth,
         string $mode = 'source-over',
         ?array $subrect = null,
+        bool $snap = false,
     ): void {
         $inv = $m->inverse();
         if ($inv === null || $alpha <= 0.0) {
@@ -535,8 +536,8 @@ final class Surface
         $corners = [
             $m->mapPoint($rx0, $ry0),
             $m->mapPoint($rx1, $ry0),
-            $m->mapPoint($rx0, $ry1),
             $m->mapPoint($rx1, $ry1),
+            $m->mapPoint($rx0, $ry1),
         ];
         $x0 = max(0, (int) floor(min($corners[0]['x'], $corners[1]['x'], $corners[2]['x'], $corners[3]['x'])));
         $x1 = min($this->width - 1, (int) ceil(max($corners[0]['x'], $corners[1]['x'], $corners[2]['x'], $corners[3]['x'])) - 1);
@@ -555,6 +556,17 @@ final class Surface
         }
         $clip = $this->clip;
         $beyond = Compositing::reachesBeyondShape($mode);
+        // A rotated or skewed image has edges that fall between pixels, and a
+        // browser antialiases them: measure how much of each pixel the quad
+        // covers instead of deciding with the centre point alone.
+        $axisAligned = \abs($m->b) < 1e-9 && \abs($m->c) < 1e-9;
+        $quad = [];
+        if (!$axisAligned && !$snap) {
+            foreach ($corners as $c) {
+                $quad[] = $c['x'];
+                $quad[] = $c['y'];
+            }
+        }
         for ($y = $y0; $y <= $y1; $y++) {
             $base = $y * $this->width;
             for ($x = $x0; $x <= $x1; $x++) {
@@ -565,7 +577,29 @@ final class Surface
                 $u = $inv->mapPoint($x + 0.5, $y + 0.5);
                 $sx = $u['x'] - 0.5;
                 $sy = $u['y'] - 0.5;
-                if ($sx < $rx0 - 0.5 || $sy < $ry0 - 0.5 || $sx > $rx1 - 0.5 || $sy > $ry1 - 0.5) {
+                if ($snap) {
+                    // One source pixel to one device pixel: no filter, no edge
+                    // fading — a browser copies the pixels untouched.
+                    $color = self::sampleNearest($src, $sx, $sy, $sw, $sh);
+                    if ($color === null || $color[3] <= 0.0) {
+                        if ($beyond) {
+                            $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
+                        }
+                        continue;
+                    }
+                    $a = min(1.0, $color[3] * $alpha);
+                    if ($clip !== null) {
+                        $cm = \ord($clip[$idx]);
+                        if ($cm < 255) {
+                            $a = min(1.0, $a * $cm / 255);
+                        }
+                    }
+                    $this->blendAt($idx, $color[0], $color[1], $color[2], $a, $mode);
+                    continue;
+                }
+                // A sample exactly on the edge of the source rectangle belongs
+                // to no pixel: a filtered draw leaves it out.
+                if ($sx <= $rx0 - 0.5 || $sy <= $ry0 - 0.5 || $sx >= $rx1 - 0.5 || $sy >= $ry1 - 0.5) {
                     if ($beyond) {
                         $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
                     }
@@ -575,9 +609,24 @@ final class Surface
                     ? self::sampleBilinear($src, $sx, $sy, $sw, $sh)
                     : self::sampleNearest($src, $sx, $sy, $sw, $sh);
                 if ($color === null || $color[3] <= 0.0) {
+                    // Transparent source still has a result for modes that see
+                    // past the shape, so it must not be skipped for them.
+                    if ($beyond) {
+                        $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
+                    }
                     continue;
                 }
-                $a = min(1.0, $color[3] * $alpha);
+                $edge = 1.0;
+                if ($quad !== []) {
+                    $edge = self::quadCoverage($x, $y, $quad);
+                    if ($edge <= 0.0) {
+                        if ($beyond) {
+                            $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
+                        }
+                        continue;
+                    }
+                }
+                $a = min(1.0, $color[3] * $alpha * $edge);
                 if ($clip !== null) {
                     $cm = \ord($clip[$idx]);
                     if ($cm < 255) {
@@ -587,6 +636,60 @@ final class Surface
                 $this->blendAt($idx, $color[0], $color[1], $color[2], $a, $mode);
             }
         }
+    }
+
+    /**
+     * How much of the pixel at (x, y) lies inside a convex quad, measured with
+     * a 4x4 grid.  Pixels wholly inside or wholly outside cost four tests.
+     *
+     * @param list<float> $quad  x0,y0,x1,y1,x2,y2,x3,y3 in device space
+     */
+    private static function quadCoverage(int $x, int $y, array $quad): float
+    {
+        $corners = 0;
+        foreach ([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]] as $o) {
+            if (self::inQuad($x + $o[0], $y + $o[1], $quad)) {
+                $corners++;
+            }
+        }
+        if ($corners === 4) {
+            return 1.0;
+        }
+        $hits = 0;
+        for ($j = 0; $j < 8; $j++) {
+            $py = $y + ($j + 0.5) / 8;
+            for ($i = 0; $i < 8; $i++) {
+                if (self::inQuad($x + ($i + 0.5) / 8, $py, $quad)) {
+                    $hits++;
+                }
+            }
+        }
+        return $hits / 64.0;
+    }
+
+    /**
+     * @param list<float> $quad
+     */
+    private static function inQuad(float $x, float $y, array $quad): bool
+    {
+        $sign = 0;
+        for ($i = 0; $i < 8; $i += 2) {
+            $j = ($i + 2) % 8;
+            $cross = ($quad[$j] - $quad[$i]) * ($y - $quad[$i + 1])
+                - ($quad[$j + 1] - $quad[$i + 1]) * ($x - $quad[$i]);
+            if ($cross > 0.0) {
+                if ($sign < 0) {
+                    return false;
+                }
+                $sign = 1;
+            } elseif ($cross < 0.0) {
+                if ($sign > 0) {
+                    return false;
+                }
+                $sign = -1;
+            }
+        }
+        return true;
     }
 
     /**
@@ -712,8 +815,10 @@ final class Surface
     /** @return ?array{0:float,1:float,2:float,3:float} */
     private static function sampleNearest(Surface $src, float $x, float $y, int $sw, int $sh): ?array
     {
-        $ix = (int) floor($x);
-        $iy = (int) floor($y);
+        // Coordinates here are pixel centres, so the nearest pixel is the one
+        // whose centre is closest.
+        $ix = (int) floor($x + 0.5);
+        $iy = (int) floor($y + 0.5);
         if ($ix < 0 || $iy < 0 || $ix >= $sw || $iy >= $sh) {
             return null;
         }
@@ -734,20 +839,18 @@ final class Surface
         $a = 0.0;
         $found = false;
         for ($dy = 0; $dy <= 1; $dy++) {
-            $sy = $y0 + $dy;
-            if ($sy < 0 || $sy >= $sh) {
-                continue;
-            }
+            // Clamp to the edge rather than treat it as transparent: a filter
+            // reaching past the border of an image reads the border pixel, and
+            // the weights then still add to one.
+            $sy = min($sh - 1, max(0, $y0 + $dy));
             for ($dx = 0; $dx <= 1; $dx++) {
-                $sx = $x0 + $dx;
-                if ($sx < 0 || $sx >= $sw) {
-                    continue;
-                }
+                $sx = min($sw - 1, max(0, $x0 + $dx));
                 $c = self::unpack($src->px[$sy * $sw + $sx]);
                 $w = ($dx === 0 ? 1 - $fx : $fx) * ($dy === 0 ? 1 - $fy : $fy);
                 if ($w <= 0.0) {
                     continue;
                 }
+                $found = true;
                 // Premultiplied interpolation, so transparent edges do not
                 // bleed their colour into neighbours.
                 $r += $c[0] * $c[3] * $w;
