@@ -71,9 +71,11 @@ final class Stroker
         foreach ($polylines as $line) {
             $closed = (bool) $line['closed'];
             $pts = self::dedupe($line['pts'], $closed);
-            if (count($pts) < 2) {
+            if ($pts === [] || ($closed && count($pts) < 3)) {
                 continue;
             }
+            // A single point can still be stroked: round and square caps draw a
+            // dot, which is what a zero-length subpath looks like in a browser.
             if ($this->dash !== []) {
                 foreach ($this->dashPieces($pts, $closed, $dashOffset) as $piece) {
                     $this->pieceOutline($piece, false, $out);

@@ -77,9 +77,10 @@ final class Path
     public function bezierCurveTo(float $c1x, float $c1y, float $c2x, float $c2y, float $x, float $y): void
     {
         if ($this->current === null) {
+            // No current point: the curve starts at its first control point and
+            // is still a curve, not a polyline through the controls.
             $this->moveTo($c1x, $c1y);
-            $this->pushLine($c2x, $c2y);
-            $this->pushLine($x, $y);
+            $this->pushSeg([2, $c1x, $c1y, $c2x, $c2y, $x, $y], [$x, $y]);
             return;
         }
         $this->pushSeg([2, $c1x, $c1y, $c2x, $c2y, $x, $y], [$x, $y]);

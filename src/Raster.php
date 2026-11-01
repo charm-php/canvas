@@ -250,6 +250,26 @@ final class Raster
         $nonZero = $rule !== self::EVENODD;
         $winding = 0;
         $crossings = 0;
+
+        // A point exactly on the outline counts as inside, which is what
+        // browsers report for isPointInPath on an integer boundary.
+        $eps = 1e-9;
+        foreach ($polygons as $flat) {
+            $n = count($flat);
+            for ($i = 0; $i + 3 < $n; $i += 2) {
+                $x0 = $flat[$i];
+                $y0 = $flat[$i + 1];
+                $x1 = $flat[$i + 2];
+                $y1 = $flat[$i + 3];
+                $cross = ($x1 - $x0) * ($y - $y0) - ($y1 - $y0) * ($x - $x0);
+                if (abs($cross) <= $eps
+                    && $x >= min($x0, $x1) - $eps && $x <= max($x0, $x1) + $eps
+                    && $y >= min($y0, $y1) - $eps && $y <= max($y0, $y1) + $eps) {
+                    return true;
+                }
+            }
+        }
+
         foreach ($polygons as $flat) {
             $n = count($flat);
             if ($n < 6) {
