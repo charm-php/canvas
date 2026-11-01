@@ -17,6 +17,12 @@ final class Metrics
         'strict' => [4, 0.995, 0.010, 0],
         'normal' => [16, 0.950, 0.030, 1],
         'loose'  => [48, 0.800, 0.120, 2],
+        // Glyphs: GD's FreeType and Skia hint and antialias outlines
+        // differently, so identical fonts give stems of different weight.
+        // What is comparable, and what matters for API parity, is where the
+        // text lands, how far it reaches and roughly how much ink it puts
+        // down — not the coverage of each glyph edge.
+        'text'   => [64, 0.780, 0.500, 2],
     ];
 
     /**

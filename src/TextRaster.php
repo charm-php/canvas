@@ -52,9 +52,10 @@ final class TextRaster
         $width = max(1, $inkRight - $inkLeft + 2 * $pad);
         $height = max(1, $inkBottom - $inkTop + 2 * $pad);
 
-        // Pen origin inside the raster: the baseline-left point.
-        $originX = -$inkLeft + $pad;
-        $originY = -$inkTop + $pad;
+        // Pen origin inside the raster: the baseline-left point.  It is kept on
+        // a whole pixel so a blit at the same scale lands glyph edges exactly.
+        $originX = (float) (int) round(-$inkLeft + $pad);
+        $originY = (float) (int) round(-$inkTop + $pad);
 
         $image = \imagecreatetruecolor($width, $height);
         \imagealphablending($image, false);
@@ -70,7 +71,7 @@ final class TextRaster
         if ($white === false) {
             return null;
         }
-        if (@\imagettftext($image, $size, 0.0, (int) round($originX), (int) round($originY), $white, $fontFile, $text) === false) {
+        if (@\imagettftext($image, $size, 0.0, (int) $originX, (int) $originY, $white, $fontFile, $text) === false) {
             return null;
         }
 

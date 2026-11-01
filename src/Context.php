@@ -655,6 +655,7 @@ class Context
             $this->globalAlpha,
             $this->imageSmoothingEnabled,
             $this->globalCompositeOperation,
+            [$sx, $sy, $sx + $srcW, $sy + $srcH],
         );
     }
 

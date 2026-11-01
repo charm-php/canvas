@@ -119,66 +119,66 @@ trait Media
         // ---- text (loose: rasterisers legitimately differ) ----------------
         $add('text/basic', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['fillText', 'Hi', 4, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/sizes', [
             ['setFill', '#ffffff'], ['setFont', '10px ConfSans'], ['fillText', 'Ag', 2, 12],
             ['setFont', '20px ConfSans'], ['fillText', 'Ag', 2, 30],
-        ], 'text', 'loose', 40, 40);
+        ], 'text', 'text', 40, 40);
         $add('text/align-left', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['setAlign', 'left'],
             ['fillText', 'i', 20, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/align-center', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['setAlign', 'center'],
             ['fillText', 'i', 20, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/align-right', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['setAlign', 'right'],
             ['fillText', 'i', 20, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/align-start', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['setAlign', 'start'],
             ['fillText', 'i', 20, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/align-end', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['setAlign', 'end'],
             ['fillText', 'i', 20, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         foreach (['top', 'hanging', 'middle', 'alphabetic', 'ideographic', 'bottom'] as $b) {
             $add('text/baseline-' . $b, [
                 ['setFill', '#ff0000'], ['setFont', '16px ConfSans'], ['setBaseline', $b],
                 ['fillText', 'Hg', 4, 16],
-            ], 'text', 'loose', 40, 32);
+            ], 'text', 'text', 40, 32);
         }
         $add('text/rotated', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'],
             ['translate', 6, 24], ['rotate', -0.5], ['fillText', 'Ab', 0, 0],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/scaled', [
             ['setFill', '#ffffff'], ['setFont', '12px ConfSans'],
             ['scale', 2, 2], ['fillText', 'Ab', 2, 12],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/stroke', [
             ['setStroke', '#ffffff'], ['setLineWidth', 1], ['setFont', '16px ConfSans'],
             ['strokeText', 'Hi', 4, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/max-width', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'],
             ['fillText', 'WWWWWWWW', 2, 20, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/measure-short', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['measureRect', 'i', 0, 10],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/measure-long', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['measureRect', 'Hello World', 0, 10],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/measure-scaled', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'],
             ['scale', 2, 1], ['measureRect', 'Hello', 0, 10],
-        ], 'text', 'loose');
+        ], 'text', 'text');
         $add('text/empty-string', [
             ['setFill', '#ffffff'], ['setFont', '16px ConfSans'], ['fillText', '', 4, 20],
-        ], 'text', 'loose');
+        ], 'text', 'text');
 
         // ---- hit testing --------------------------------------------------
         $add('hit/inside-rect', [

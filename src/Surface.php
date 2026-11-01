@@ -407,6 +407,14 @@ final class Surface
     // Pixel access
     // -----------------------------------------------------------------
 
+    public function rawPixel(int $x, int $y): int
+    {
+        if ($x < 0 || $y < 0 || $x >= $this->width || $y >= $this->height) {
+            return 0;
+        }
+        return $this->px[$y * $this->width + $x];
+    }
+
     /** @return array{0:float,1:float,2:float,3:float} */
     public function getPixel(int $x, int $y): array
     {
@@ -505,6 +513,7 @@ final class Surface
         float $alpha,
         bool $smooth,
         string $mode = 'source-over',
+        ?array $subrect = null,
     ): void {
         $inv = $m->inverse();
         if ($inv === null || $alpha <= 0.0) {
@@ -516,11 +525,18 @@ final class Surface
             return;
         }
 
+        // Only the requested source rectangle is drawn; with a sub-rectangle,
+        // sampling outside it must not happen.
+        $rx0 = $subrect === null ? 0.0 : $subrect[0];
+        $ry0 = $subrect === null ? 0.0 : $subrect[1];
+        $rx1 = $subrect === null ? (float) $sw : $subrect[2];
+        $ry1 = $subrect === null ? (float) $sh : $subrect[3];
+
         $corners = [
-            $m->mapPoint(0.0, 0.0),
-            $m->mapPoint((float) $sw, 0.0),
-            $m->mapPoint(0.0, (float) $sh),
-            $m->mapPoint((float) $sw, (float) $sh),
+            $m->mapPoint($rx0, $ry0),
+            $m->mapPoint($rx1, $ry0),
+            $m->mapPoint($rx0, $ry1),
+            $m->mapPoint($rx1, $ry1),
         ];
         $x0 = max(0, (int) floor(min($corners[0]['x'], $corners[1]['x'], $corners[2]['x'], $corners[3]['x'])));
         $x1 = min($this->width - 1, (int) ceil(max($corners[0]['x'], $corners[1]['x'], $corners[2]['x'], $corners[3]['x'])) - 1);
@@ -549,7 +565,7 @@ final class Surface
                 $u = $inv->mapPoint($x + 0.5, $y + 0.5);
                 $sx = $u['x'] - 0.5;
                 $sy = $u['y'] - 0.5;
-                if ($sx < -0.5 || $sy < -0.5 || $sx > $sw - 0.5 || $sy > $sh - 0.5) {
+                if ($sx < $rx0 - 0.5 || $sy < $ry0 - 0.5 || $sx > $rx1 - 0.5 || $sy > $ry1 - 0.5) {
                     if ($beyond) {
                         $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
                     }
@@ -611,12 +627,27 @@ final class Surface
                     continue;
                 }
                 $u = $inv->mapPoint($x + 0.5, $y + 0.5);
-                $mx = (int) floor($u['x']);
-                $my = (int) floor($u['y']);
-                if ($mx < 0 || $my < 0 || $mx >= $sw || $my >= $sh) {
+                // Bilinear on the mask: it is itself an antialiased coverage
+                // field, so resampling it linearly preserves its ink.
+                $fx = $u['x'] - 0.5;
+                $fy = $u['y'] - 0.5;
+                $mx = (int) floor($fx);
+                $my = (int) floor($fy);
+                if ($mx < -1 || $my < -1 || $mx > $sw || $my > $sh) {
                     continue;
                 }
-                $coverage = self::unpack($mask->px[$my * $sw + $mx])[3];
+                $tx = $fx - $mx;
+                $ty = $fy - $my;
+                $at = static function (Surface $m, int $px, int $py, int $w, int $h): float {
+                    if ($px < 0 || $py < 0 || $px >= $w || $py >= $h) {
+                        return 0.0;
+                    }
+                    return \ord(chr(($m->rawPixel($px, $py) >> 24) & 0xFF)) / 255;
+                };
+                $coverage = $at($mask, $mx, $my, $sw, $sh) * (1 - $tx) * (1 - $ty)
+                    + $at($mask, $mx + 1, $my, $sw, $sh) * $tx * (1 - $ty)
+                    + $at($mask, $mx, $my + 1, $sw, $sh) * (1 - $tx) * $ty
+                    + $at($mask, $mx + 1, $my + 1, $sw, $sh) * $tx * $ty;
                 if ($coverage <= 0.0) {
                     continue;
                 }
