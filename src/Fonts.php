@@ -205,7 +205,7 @@ final class Fonts
         if ($font === null) {
             return ['width' => 0.0, 'ascent' => $size * 0.8, 'descent' => $size * 0.2];
         }
-        $scale = $size / max(1, $font['unitsPerEm']);
+        // readFont() reports advances and extents in em units already.
         $advance = 0.0;
         $len = \mb_strlen($text);
         for ($i = 0; $i < $len; $i++) {
@@ -214,9 +214,9 @@ final class Fonts
             $advance += $font['advance'][$gid] ?? $font['advance'][0] ?? 0;
         }
         return [
-            'width' => $advance * $scale,
-            'ascent' => $font['ascent'] * $scale,
-            'descent' => -$font['descent'] * $scale,
+            'width' => $advance * $size,
+            'ascent' => $font['ascent'] * $size,
+            'descent' => -$font['descent'] * $size,
         ];
     }
 

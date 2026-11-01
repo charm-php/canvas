@@ -30,7 +30,9 @@ final class TextRaster
             return null;
         }
 
-        $size = max(0.5, $pixelSize);
+        // GD's FreeType bindings take a point size at 96 dpi; canvas asks for
+        // pixels, so convert before handing it over.
+        $size = max(0.5, $pixelSize) * 0.75;
         $bbox = \imagettfbbox($size, 0.0, $fontFile, $text);
         if ($bbox === false) {
             return null;
