@@ -186,6 +186,10 @@ final class Surface
         if ($polygons === [] || $paint->isEmpty()) {
             return;
         }
+        if (Compositing::reachesBeyondShape($mode)) {
+            $this->fillWholeCanvas($polygons, $paint, $alpha, $rule, $mode);
+            return;
+        }
         if ($alpha <= 0.0 && self::alphaIsOpaqueSafe($mode)) {
             return;
         }
@@ -247,6 +251,51 @@ final class Surface
                     $this->blendAt($base + $x, $src[0], $src[1], $src[2], min(1.0, $a), $mode);
                 }
             });
+    }
+
+    /**
+     * Composite over the entire canvas.
+     *
+     * Modes like source-in and copy are defined over the whole destination, not
+     * just over the shape: a pixel the shape never touches still has a result,
+     * computed with a fully transparent source.  Gathering the shape's coverage
+     * first lets one loop cover every pixel exactly once.
+     *
+     * @param list<list<float>> $polygons
+     */
+    private function fillWholeCanvas(array $polygons, Paint $paint, float $alpha, string $rule, string $mode): void
+    {
+        $w = $this->width;
+        $h = $this->height;
+        $rows = [];
+        Raster::walk($polygons, $rule, $w, $h, $this->verticalSamples,
+            function (int $y, array $cov) use (&$rows): void {
+                if ($y >= 0 && $y < $this->height) {
+                    $rows[$y] = $cov;
+                }
+            });
+
+        $clip = $this->clip;
+        for ($y = 0; $y < $h; $y++) {
+            $cov = $rows[$y] ?? [];
+            $base = $y * $w;
+            for ($x = 0; $x < $w; $x++) {
+                $idx = $base + $x;
+                $coverage = $cov[$x] ?? 0.0;
+                if ($clip !== null) {
+                    $coverage *= \ord($clip[$idx]) / 255;
+                }
+                $a = $coverage * $alpha;
+                if ($a <= 0.0) {
+                    $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
+                    continue;
+                }
+                $src = $paint->isConstant()
+                    ? $paint->constant()
+                    : $paint->colorAt($x + 0.5, $y + 0.5);
+                $this->blendAt($idx, $src[0], $src[1], $src[2], min(1.0, $a * $src[3]), $mode);
+            }
+        }
     }
 
     /**
@@ -481,7 +530,15 @@ final class Surface
             return;
         }
 
+        if (Compositing::reachesBeyondShape($mode)) {
+            // The destination outside the drawn quad is part of the result.
+            $x0 = 0;
+            $y0 = 0;
+            $x1 = $this->width - 1;
+            $y1 = $this->height - 1;
+        }
         $clip = $this->clip;
+        $beyond = Compositing::reachesBeyondShape($mode);
         for ($y = $y0; $y <= $y1; $y++) {
             $base = $y * $this->width;
             for ($x = $x0; $x <= $x1; $x++) {
@@ -493,6 +550,9 @@ final class Surface
                 $sx = $u['x'] - 0.5;
                 $sy = $u['y'] - 0.5;
                 if ($sx < -0.5 || $sy < -0.5 || $sx > $sw - 0.5 || $sy > $sh - 0.5) {
+                    if ($beyond) {
+                        $this->blendAt($idx, 0.0, 0.0, 0.0, 0.0, $mode);
+                    }
                     continue;
                 }
                 $color = $smooth

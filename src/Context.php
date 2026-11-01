@@ -431,7 +431,7 @@ class Context
         if ($paint === null) {
             return;
         }
-        if ($this->ctm->isAxisAligned()) {
+        if ($this->ctm->isAxisAligned() && !Compositing::reachesBeyondShape($this->globalCompositeOperation)) {
             $r = $this->ctm->mapAxisRect($x, $y, $w, $h);
             $this->surface->fillRectDevice(
                 $r['x'],

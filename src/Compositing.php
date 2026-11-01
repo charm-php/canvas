@@ -41,105 +41,80 @@ final class Compositing
      * @param array{0:float,1:float,2:float,3:float} $dst   straight RGBA
      * @return array{0:float,1:float,2:float,3:float}
      */
+    /**
+     * Does a draw with this mode change destination pixels the shape does not
+     * cover?  source-in, copy and friends work like a layer composite, so they
+     * have to visit the whole canvas; source-over and the blend modes do not.
+     */
+    public static function reachesBeyondShape(string $mode): bool
+    {
+        static $cache = [];
+        if (isset($cache[$mode])) {
+            return $cache[$mode];
+        }
+        $probes = [[0.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0], [0.5, 0.25, 0.75, 0.5]];
+        $result = false;
+        foreach ($probes as $dst) {
+            $out = self::composite($mode, [0.0, 0.0, 0.0, 0.0], $dst);
+            for ($i = 0; $i < 4; $i++) {
+                if (abs($out[$i] - $dst[$i]) > 1e-9) {
+                    $result = true;
+                    break 2;
+                }
+            }
+        }
+        return $cache[$mode] = $result;
+    }
+
+    /**
+     * Composite a source pixel over a destination pixel, both unpremultiplied
+     * with straight alpha.
+     *
+     * The Porter-Duff modes are applied from the specification's factor table,
+     * Co = Fa x Cs + Fb x Cd, in premultiplied space; the CSS blend modes use
+     * the general form with B() as the blend function.
+     *
+     * @param array{0:float,1:float,2:float,3:float} $src
+     * @param array{0:float,1:float,2:float,3:float} $dst
+     * @return array{0:float,1:float,2:float,3:float}
+     */
     public static function composite(string $mode, array $src, array $dst): array
     {
-        $as = $src[3];
-        if ($as <= 0.0) {
-            return $mode === 'copy' ? [0.0, 0.0, 0.0, 0.0] : $dst;
-        }
-        $ad = $dst[3];
+        $as = max(0.0, min(1.0, $src[3]));
+        $ad = max(0.0, min(1.0, $dst[3]));
 
-        switch ($mode) {
-            case 'copy':
-                return $src;
-            case 'source-over':
-                $ao = $as + $ad * (1 - $as);
-                if ($ao <= 0.0) {
-                    return [0.0, 0.0, 0.0, 0.0];
-                }
-                return [
-                    (($src[0] * $as) + ($dst[0] * $ad * (1 - $as))) / $ao,
-                    (($src[1] * $as) + ($dst[1] * $ad * (1 - $as))) / $ao,
-                    (($src[2] * $as) + ($dst[2] * $ad * (1 - $as))) / $ao,
-                    $ao,
-                ];
-            case 'source-in':
-                $ao = $as * $ad;
-                return $ao <= 0.0 ? [0.0, 0.0, 0.0, 0.0] : [$src[0], $src[1], $src[2], $ao];
-            case 'source-out':
-                $ao = $as * (1 - $ad);
-                return $ao <= 0.0 ? [0.0, 0.0, 0.0, 0.0] : [$src[0], $src[1], $src[2], $ao];
-            case 'source-atop':
-                $ao = $ad;
-                if ($ao <= 0.0) {
-                    return [0.0, 0.0, 0.0, 0.0];
-                }
-                $k = $as * (1 - $ad);
-                return [
-                    ($src[0] * $as * $ad + $dst[0] * $k) / $ao,
-                    ($src[1] * $as * $ad + $dst[1] * $k) / $ao,
-                    ($src[2] * $as * $ad + $dst[2] * $k) / $ao,
-                    $ao,
-                ];
-            case 'destination-over':
-                $ao = $ad + $as * (1 - $ad);
-                if ($ao <= 0.0) {
-                    return [0.0, 0.0, 0.0, 0.0];
-                }
-                return [
-                    ($dst[0] * $ad * (1 - $as) + $src[0] * $as * (1 - $ad)) / $ao,
-                    ($dst[1] * $ad * (1 - $as) + $src[1] * $as * (1 - $ad)) / $ao,
-                    ($dst[2] * $ad * (1 - $as) + $src[2] * $as * (1 - $ad)) / $ao,
-                    $ao,
-                ];
-            case 'destination-in':
-                $ao = $ad * $as;
-                return $ao <= 0.0 ? [0.0, 0.0, 0.0, 0.0] : [$dst[0], $dst[1], $dst[2], $ao];
-            case 'destination-out':
-                $ao = $ad * (1 - $as);
-                return $ao <= 0.0 ? [0.0, 0.0, 0.0, 0.0] : [$dst[0], $dst[1], $dst[2], $ao];
-            case 'destination-atop':
-                $ao = $as;
-                if ($ao <= 0.0) {
-                    return [0.0, 0.0, 0.0, 0.0];
-                }
-                $keep = $ad * (1 - $as);
-                return [
-                    ($dst[0] * $keep + $src[0] * $as * (1 - $ad)) / $ao,
-                    ($dst[1] * $keep + $src[1] * $as * (1 - $ad)) / $ao,
-                    ($dst[2] * $keep + $src[2] * $as * (1 - $ad)) / $ao,
-                    $ao,
-                ];
-            case 'lighter':
-                $ao = min(1.0, $as + $ad);
-                if ($ao <= 0.0) {
-                    return [0.0, 0.0, 0.0, 0.0];
-                }
-                return [
-                    min(1.0, ($src[0] * $as + $dst[0] * $ad) / $ao),
-                    min(1.0, ($src[1] * $as + $dst[1] * $ad) / $ao),
-                    min(1.0, ($src[2] * $as + $dst[2] * $ad) / $ao),
-                    $ao,
-                ];
-            case 'xor':
-                $as2 = $as * (1 - $ad);
-                $ad2 = $ad * (1 - $as);
-                $ao = $as2 + $ad2;
-                if ($ao <= 0.0) {
-                    return [0.0, 0.0, 0.0, 0.0];
-                }
-                return [
-                    ($src[0] * $as2 + $dst[0] * $ad2) / $ao,
-                    ($src[1] * $as2 + $dst[1] * $ad2) / $ao,
-                    ($src[2] * $as2 + $dst[2] * $ad2) / $ao,
-                    $ao,
-                ];
+        if ($mode === 'lighter') {
+            // Canvas "lighter" is plus-lighter: channels clamp independently.
+            $ao = min(1.0, $as + $ad);
+            if ($ao <= 0.0) {
+                return [0.0, 0.0, 0.0, 0.0];
+            }
+            return [
+                min(1.0, ($src[0] * $as + $dst[0] * $ad) / $ao),
+                min(1.0, ($src[1] * $as + $dst[1] * $ad) / $ao),
+                min(1.0, ($src[2] * $as + $dst[2] * $ad) / $ao),
+                $ao,
+            ];
+        }
+
+        $f = self::factors($mode, $as, $ad);
+        if ($f !== null) {
+            [$fa, $fb] = $f;
+            $ao = $fa * $as + $fb * $ad;
+            if ($ao <= 0.0) {
+                return [0.0, 0.0, 0.0, 0.0];
+            }
+            $out = [0.0, 0.0, 0.0, $ao];
+            for ($i = 0; $i < 3; $i++) {
+                $v = ($fa * $as * $src[$i] + $fb * $ad * $dst[$i]) / $ao;
+                $out[$i] = $v <= 0.0 ? 0.0 : ($v >= 1.0 ? 1.0 : $v);
+            }
+            return $out;
         }
 
         if (!\in_array($mode, self::SEPARABLE, true)) {
-            // Unknown or unimplemented mode: browsers ignore the assignment and
-            // keep the previous operation, which for a fresh context is
-            // source-over.
+            // Unknown mode: browsers ignore the assignment, and a fresh context
+            // composites source-over.
             return self::composite('source-over', $src, $dst);
         }
 
@@ -150,12 +125,33 @@ final class Compositing
         $out = [0.0, 0.0, 0.0, $ao];
         for ($i = 0; $i < 3; $i++) {
             $b = self::separable($mode, $src[$i], $dst[$i]);
-            $premul = $as * (1 - $ad) * $src[$i]
-                + $as * $ad * $b
-                + (1 - $as) * $ad * $dst[$i];
-            $out[$i] = $premul / $ao;
+            $v = ($as * (1 - $ad) * $src[$i] + $as * $ad * $b + (1 - $as) * $ad * $dst[$i]) / $ao;
+            $out[$i] = $v <= 0.0 ? 0.0 : ($v >= 1.0 ? 1.0 : $v);
         }
         return $out;
+    }
+
+    /**
+     * Fa and Fb from the Porter-Duff table, or null for a blend mode.
+     *
+     * @return ?array{0:float,1:float}
+     */
+    private static function factors(string $mode, float $as, float $ad): ?array
+    {
+        return match ($mode) {
+            'copy' => [1.0, 0.0],
+            'source-over' => [1.0, 1.0 - $as],
+            'source-in' => [$ad, 0.0],
+            'source-out' => [1.0 - $ad, 0.0],
+            'source-atop' => [$ad, 1.0 - $as],
+            'destination-over' => [1.0 - $ad, 1.0],
+            'destination-in' => [0.0, $as],
+            'destination-out' => [0.0, 1.0 - $as],
+            'destination-atop' => [1.0 - $ad, $as],
+            'xor' => [1.0 - $ad, 1.0 - $as],
+            'clear' => [0.0, 0.0],
+            default => null,
+        };
     }
 
     private static function separable(string $mode, float $cs, float $cb): float
