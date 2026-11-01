@@ -19,6 +19,7 @@ use phasync\Canvas\Conformance\Runner;
 $argvv = array_slice($argv, 1);
 $filter = null;
 $tag = null;
+$dump = null;
 $verbose = false;
 $showMaps = 5;
 $list = false;
@@ -35,6 +36,8 @@ for ($i = 0; $i < count($argvv); $i++) {
         $showMaps = 10000;
     } elseif ($a === '--maps') {
         $showMaps = (int) ($argvv[++$i] ?? 5);
+    } elseif ($a === '--dump') {
+        $dump = $argvv[++$i] ?? null;
     } elseif ($a === '--list') {
         $list = true;
     } elseif ($a === '--all') {
@@ -43,6 +46,11 @@ for ($i = 0; $i < count($argvv); $i++) {
         echo "usage: bin/conformance [--filter GLOB] [--tag TAG] [--verbose] [--maps N] [--list] [--all]\n";
         exit(0);
     }
+}
+
+if ($dump !== null) {
+    echo \phasync\Canvas\Conformance\Runner::dump($dump);
+    exit(0);
 }
 
 if ($list) {

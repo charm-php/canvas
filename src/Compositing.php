@@ -186,13 +186,18 @@ final class Compositing
                 }
                 return \min(1.0, $cb / (1 - $cs));
             case 'color-burn':
-                if ($cs <= 0.0) {
-                    return 0.0;
-                }
+                // Guards in this order: a white backdrop burns to white even
+                // with a black source, which is the limit of the formula.
                 if ($cb >= 1.0) {
                     return 1.0;
                 }
-                return 1 - \min(1.0, (1 - $cb) / $cs);
+                if ($cb <= 0.0 || $cs <= 0.0) {
+                    return 0.0;
+                }
+                if ($cs >= 1.0) {
+                    return 1.0;
+                }
+                return max(0.0, min(1.0, 1.0 - min(1.0, (1.0 - $cb) / $cs)));
             case 'soft-light':
                 if ($cs <= 0.5) {
                     return $cb - (1 - 2 * $cs) * $cb * (1 - $cb);

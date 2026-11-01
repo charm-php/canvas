@@ -168,6 +168,32 @@ final class Stroker
         if ($n < 1) {
             return;
         }
+        if ($n === 1 && !$closed) {
+            // A subpath with no length: a round cap makes a dot, a square cap
+            // a square, a butt cap nothing at all.
+            $h = $this->half;
+            if ($this->cap === 'round') {
+                $out[] = self::circle($pts[0], $pts[1], $h);
+            } elseif ($this->cap === 'square') {
+                $out[] = [$pts[0] - $h, $pts[1] - $h, $pts[0] + $h, $pts[1] - $h,
+                          $pts[0] + $h, $pts[1] + $h, $pts[0] - $h, $pts[1] + $h];
+            }
+            return;
+        }
+        $caps = !$closed;
+        if ($closed) {
+            $area = 0.0;
+            for ($i = 0; $i < $n; $i++) {
+                $j = ($i + 1) % $n;
+                $area += $pts[$i * 2] * $pts[$j * 2 + 1] - $pts[$j * 2] * $pts[$i * 2 + 1];
+            }
+            if (abs($area) < 1e-9) {
+                // A closed subpath enclosing no area — a line drawn out and
+                // back — strokes as a plain band: open geometry, no caps.
+                $closed = false;
+                $caps = false;
+            }
+        }
         $segCount = $closed ? $n : $n - 1;
         if ($segCount < 1) {
             return;
@@ -186,8 +212,12 @@ final class Stroker
 
         if ($total <= 1e-9) {
             // Zero-length subpath: only round caps and joins paint a dot.
-            if ($this->cap === 'round' || $this->join === 'round') {
+            if ($this->cap === 'round') {
                 $out[] = self::circle($pts[0], $pts[1], $this->half);
+            } elseif ($this->cap === 'square') {
+                $h = $this->half;
+                $out[] = [$pts[0] - $h, $pts[1] - $h, $pts[0] + $h, $pts[1] - $h,
+                          $pts[0] + $h, $pts[1] + $h, $pts[0] - $h, $pts[1] + $h];
             }
             return;
         }
@@ -244,7 +274,7 @@ final class Stroker
                     continue;
                 }
                 $shift = 0.0;
-                if ($this->cap === 'square' && ($atStart || $atEnd)) {
+                if ($caps && $this->cap === 'square' && ($atStart || $atEnd)) {
                     $shift = $atStart ? -$this->half : $this->half;
                 }
                 $px = $x + $d[0] * $shift;
@@ -271,7 +301,8 @@ final class Stroker
             // Inner side always mitres, which keeps the band gap-free.
             $this->mitrePoint($plus, $minus, $inner, $x, $y, $din, $dout, $c);
 
-            $ratio = sqrt(2 / (1 + $c));
+            // The miter ratio is 1/sin(theta/2); a reversal never mitres.
+            $ratio = $c > -0.999999 ? sqrt(2 / (1 + $c)) : INF;
             if ($this->join === 'miter' && $ratio <= $this->miterLimit) {
                 $this->mitrePoint($plus, $minus, $outer, $x, $y, $din, $dout, $c);
             } elseif ($this->join === 'round') {
@@ -293,8 +324,13 @@ final class Stroker
                 }
             } else {
                 // Bevel: both offset endpoints, joined by a straight edge.
-                $this->sidePoint($plusIsOuter ? $plus : $minus, $x, $y, $din, $outer);
-                $this->sidePoint($plusIsOuter ? $plus : $minus, $x, $y, $dout, $outer);
+                if ($plusIsOuter) {
+                    $this->sidePoint($plus, $x, $y, $din, $outer);
+                    $this->sidePoint($plus, $x, $y, $dout, $outer);
+                } else {
+                    $this->sidePoint($minus, $x, $y, $din, $outer);
+                    $this->sidePoint($minus, $x, $y, $dout, $outer);
+                }
             }
         }
 
@@ -303,14 +339,14 @@ final class Stroker
         }
 
         $poly = $plus;
-        if (!$closed) {
+        if ($caps) {
             $this->capArc($poly, $pts[($n - 1) * 2], $pts[($n - 1) * 2 + 1], $lastDir, true);
         }
         for ($i = intdiv(count($minus), 2) - 1; $i >= 0; $i--) {
             $poly[] = $minus[$i * 2];
             $poly[] = $minus[$i * 2 + 1];
         }
-        if (!$closed) {
+        if ($caps) {
             $this->capArc($poly, $pts[0], $pts[1], $first, false);
         }
 
@@ -339,7 +375,8 @@ final class Stroker
     {
         $nin = [$din[1], -$din[0]];
         $nout = [$dout[1], -$dout[0]];
-        $k = $this->half / (1 + $c);
+        // A 180 degree reversal has no apex; fall back to the plain offset.
+        $k = $c > -0.999999 ? $this->half / (1 + $c) : $this->half;
         $px = $x + $side * ($nin[0] + $nout[0]) * $k;
         $py = $y + $side * ($nin[1] + $nout[1]) * $k;
         if ($side > 0.0) {

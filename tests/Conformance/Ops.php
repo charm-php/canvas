@@ -30,6 +30,10 @@ final class Ops
                 self::step($ctx, $op, $fx);
             }
         } catch (\Throwable $e) {
+            if (\getenv('CONFORMANCE_TRACE')) {
+                $trace = $e->getTraceAsString();
+                fwrite(STDERR, $trace);
+            }
             return ['ok' => false, 'error' => get_class($e) . ': ' . $e->getMessage()];
         }
         return ['ok' => true, 'error' => null];

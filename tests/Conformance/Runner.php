@@ -126,6 +126,93 @@ final class Runner
         }
     }
 
+    /**
+     * Print PHP and Chrome side by side for one case, as alpha grids and as
+     * a list of the pixels that disagree.
+     */
+    public static function dump(string $caseId): string
+    {
+        $cases = self::filtered($caseId, null);
+        if ($cases === []) {
+            return "no such case: $caseId\n";
+        }
+        $case = $cases[0];
+        $fx = new Fixture();
+        $mine = self::renderPhp($case, $fx, Fixture::fontPath() ?? '');
+        $chrome = new Chrome();
+        $oracle = $chrome->render([$case]);
+        $theirs = $oracle[$caseId] ?? null;
+        if (!$mine['ok']) {
+            return 'PHP error: ' . $mine['error'] . "\n";
+        }
+        if ($theirs === null) {
+            return "no oracle pixels\n";
+        }
+
+        $w = $case['w'];
+        $h = $case['h'];
+        $a = $mine['rgba'];
+        $b = $theirs['rgba'];
+        $out = "case $caseId  ({$case['tier']})  {$w}x{$h}\n\n";
+        foreach ([['php', $a], ['chrome', $b]] as [$label, $px]) {
+            $out .= "$label:\n";
+            for ($y = 0; $y < $h; $y++) {
+                for ($x = 0; $x < $w; $x++) {
+                    $o = ($y * $w + $x) * 4;
+                    $al = \ord($px[$o + 3]);
+                    $out .= $al === 0 ? '.' : ($al > 250 ? '#' : ($al > 120 ? '+' : ($al > 30 ? ':' : ',')));
+                }
+                $out .= "\n";
+            }
+            $out .= "\n";
+        }
+
+        $m = Metrics::compare($a, $b, $w, $h, $case['tier']);
+        $out .= sprintf(
+            "agree %.1f%%  cov %.1f%% vs %.1f%%  bbox php [%s] chrome [%s]  maxDiff %d  mad %.2f\n",
+            $m['agreement'] * 100,
+            $m['phpCoverage'] * 100,
+            $m['chromeCoverage'] * 100,
+            implode(',', $m['phpBbox']),
+            implode(',', $m['chromeBbox']),
+            $m['maxDiff'],
+            $m['mad'],
+        );
+
+        $out .= "\ndifferences (x, y: php rgba | chrome rgba):\n";
+        $shown = 0;
+        for ($y = 0; $y < $h && $shown < 60; $y++) {
+            $line = '';
+            for ($x = 0; $x < $w; $x++) {
+                $o = ($y * $w + $x) * 4;
+                $d = abs(\ord($a[$o]) - \ord($b[$o])) + abs(\ord($a[$o + 1]) - \ord($b[$o + 1]))
+                    + abs(\ord($a[$o + 2]) - \ord($b[$o + 2])) + abs(\ord($a[$o + 3]) - \ord($b[$o + 3]));
+                if ($d <= 3) {
+                    continue;
+                }
+                $line .= sprintf(
+                    "  (%d,%d) %3d,%3d,%3d,%3d | %3d,%3d,%3d,%3d\n",
+                    $x,
+                    $y,
+                    \ord($a[$o]),
+                    \ord($a[$o + 1]),
+                    \ord($a[$o + 2]),
+                    \ord($a[$o + 3]),
+                    \ord($b[$o]),
+                    \ord($b[$o + 1]),
+                    \ord($b[$o + 2]),
+                    \ord($b[$o + 3]),
+                );
+                $shown++;
+                if ($shown >= 60) {
+                    break;
+                }
+            }
+            $out .= $line;
+        }
+        return $out;
+    }
+
     private static function fail(array $case, string $kind, string $reason): array
     {
         return [
