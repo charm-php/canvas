@@ -237,20 +237,31 @@ class Canvas
         $bg = $background === null ? null : ColorParser::parseNormalized($background);
         $rows = $this->surface->toRgbaString();
         $stride = $sw * 4;
-        $rowCache = [];
+        $memo = [];
 
         for ($ty = 0; $ty < $h; $ty++) {
             $y0 = (int) floor($ty * $sh / $h);
             $y1 = min($sh, max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h)));
-            // Bytes of each source row in this dot row, as [R,G,B,A,R,...] from index 1.
             $lines = [];
-            for ($y = $y0; $y < $y1; $y++) {
-                $lines[$y] = $rowCache[$y] ??= \unpack('C*', \substr($rows, $y * $stride, $stride));
-            }
-            unset($rowCache[$y0 - 1]);
             for ($tx = 0; $tx < $w; $tx++) {
                 $x0 = (int) floor($tx * $sw / $w);
                 $x1 = min($sw, max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w)));
+
+                // Equal pixels give an equal dot, and flat areas repeat.
+                $key = \chr($x1 - $x0);
+                for ($y = $y0; $y < $y1; $y++) {
+                    $key .= \substr($rows, $y * $stride + $x0 * 4, ($x1 - $x0) * 4);
+                }
+                if (isset($memo[$key])) {
+                    $on .= $memo[$key][0];
+                    $rgb .= $memo[$key][1];
+                    continue;
+                }
+                if ($lines === []) {
+                    for ($y = $y0; $y < $y1; $y++) {
+                        $lines[$y] = \unpack('C*', \substr($rows, $y * $stride, $stride));
+                    }
+                }
 
                 $r = $g = $b = 0.0;
                 $weight = 0.0;
@@ -275,14 +286,18 @@ class Canvas
                 }
 
                 if ($weight <= 0.0) {
-                    $on .= "\0";
-                    $rgb .= "\0\0\0";
-                    continue;
+                    $dot = ["\0", "\0\0\0"];
+                } else {
+                    $dot = ["\1", \chr((int) round($r / $weight * 255))
+                        . \chr((int) round($g / $weight * 255))
+                        . \chr((int) round($b / $weight * 255))];
                 }
-                $on .= "\1";
-                $rgb .= \chr((int) round($r / $weight * 255))
-                    . \chr((int) round($g / $weight * 255))
-                    . \chr((int) round($b / $weight * 255));
+                if (\count($memo) > 4096) {
+                    $memo = [];
+                }
+                $memo[$key] = $dot;
+                $on .= $dot[0];
+                $rgb .= $dot[1];
             }
         }
 

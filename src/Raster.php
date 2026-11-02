@@ -135,46 +135,39 @@ final class Raster
 
                 $xs = [];
                 $ds = [];
-                $m = 0;
                 foreach ($active as $e) {
                     if ($ys >= $ey0[$e] && $ys < $ey1[$e]) {
-                        $x = $ex0[$e] + ($ys - $ey0[$e]) * $edx[$e];
-                        $d = $edir[$e];
-                        // insertion sort keeps crossings ordered by x
-                        $i = $m++;
-                        while ($i > 0 && $xs[$i - 1] > $x) {
-                            $xs[$i] = $xs[$i - 1];
-                            $ds[$i] = $ds[$i - 1];
-                            $i--;
-                        }
-                        $xs[$i] = $x;
-                        $ds[$i] = $d;
+                        $xs[] = $ex0[$e] + ($ys - $ey0[$e]) * $edx[$e];
+                        $ds[] = $edir[$e];
                     }
                 }
-                if ($m < 2) {
+                if (count($xs) < 2) {
                     continue;
                 }
+                asort($xs); // C-speed sort; $ds is read through the surviving keys
 
                 $w = 0;
                 $xa = 0.0;
-                for ($i = 0; $i < $m; $i++) {
+                $odd = false;
+                foreach ($xs as $i => $x) {
                     if ($nonZero) {
                         $before = $w;
                         $w += $ds[$i];
                         if ($before === 0 && $w !== 0) {
-                            $xa = $xs[$i];
+                            $xa = $x;
                             continue;
                         }
                         if (!($before !== 0 && $w === 0)) {
                             continue;
                         }
                     } else {
-                        if (($i & 1) === 0) {
-                            $xa = $xs[$i];
+                        $odd = !$odd;
+                        if ($odd) {
+                            $xa = $x;
                             continue;
                         }
                     }
-                    $xb = $xs[$i];
+                    $xb = $x;
                     if ($xa < 0.0) {
                         $xa = 0.0;
                     }

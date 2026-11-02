@@ -518,11 +518,18 @@ final class Surface
         $lastD = null;
         $lastO = '';
         $new = '';
+        $sBytes = null;
         for ($o = $x0 * 4, $end = $x1 * 4 + 4; $o < $end; $o += 4) {
             $d = substr($row, $o, 4);
             if ($d !== $lastD) {
                 $lastD = $d;
-                $lastO = self::overPixel($d, $sr, $sg, $sb, $sa);
+                if ($d[3] === "\0") {
+                    // Over nothing the result is the source colour itself.
+                    $sBytes ??= \chr(self::byte($sr)) . \chr(self::byte($sg)) . \chr(self::byte($sb)) . \chr((int) round($sa * 255));
+                    $lastO = $sBytes;
+                } else {
+                    $lastO = self::overPixel($d, $sr, $sg, $sb, $sa);
+                }
             }
             $new .= $lastO;
         }
