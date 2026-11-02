@@ -73,6 +73,6 @@ final class Pattern
             return [0.0, 0.0, 0.0, 0.0];
         }
 
-        return $this->tile->getPixel((int) floor($x), (int) floor($y));
+        return $this->tile->colorAt((int) floor($x), (int) floor($y));
     }
 }

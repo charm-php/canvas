@@ -17,6 +17,12 @@ final class Surface
      * row: 0xAARRGGBB with alpha 0 = opaque .. 127 = transparent (7 bits), so
      * nothing is converted when pixels cross into or out of GD.
      *
+     * Address single pixels with idx()/getPixel()/setPixel()/blendPixel().
+     * Only these touch the array directly: the row loops of fillPolygons'
+     * callback (overRun), fillRectDevice and clearRectDevice, toRgbaString,
+     * fromRgbaString, readRect/writeSurface (bulk slices) and the constructor
+     * helpers; Canvas::toDots reads a copy from clonePixels().
+     *
      * @var list<int>
      */
     private array $px;
@@ -219,7 +225,7 @@ final class Surface
                     if ($x < 0 || $x >= $w || $c <= 0.0) {
                         continue;
                     }
-                    $v = $c >= 1.0 ? 255 : (int) round($c * 255);
+                    $v = $c >= 1.0 ? 255 : (int) ($c * 255 + 0.5);
                     $i = $base + $x;
                     if ($v > \ord($bytes[$i])) {
                         $bytes[$i] = \chr($v);
@@ -306,7 +312,8 @@ final class Surface
                     }
                     if ($over) {
                         if ($a > 0.0) {
-                            $this->overRun($y, $x, $x, $src[0], $src[1], $src[2], min(1.0, $a), $rgb);
+                            $this->blendPixel($x, $y, $rgb ?? (self::byte($src[0]) << 16) | (self::byte($src[1]) << 8) | self::byte($src[2]),
+                                (int) (min(1.0, $a) * 127 + 0.5));
                         }
                         continue;
                     }
@@ -416,12 +423,11 @@ final class Surface
             }
             $base = $py * $this->width;
             $rowY = $py + 0.5;
-            for ($qx = $qa; $qx <= $qb; $qx++) {
+            for ($qx = $qa, $idx = $base + $qa; $qx <= $qb; $qx++, $idx++) {
                 $cx = $cxs[$qx];
                 if ($cx <= 0.0) {
                     continue;
                 }
-                $idx = $base + $qx;
                 $src = $constant ?? $paint->colorAt($qx + 0.5, $rowY);
                 $a = min(1.0, $src[3] * $alpha * $cx * $cy);
                 if ($a <= 0.0 && $over) {
@@ -448,9 +454,9 @@ final class Surface
                     $r = $src[0];
                     $g = $src[1];
                     $b = $src[2];
-                    $px[$idx] = (($r <= 0.0 ? 0 : ($r >= 1.0 ? 255 : (int) round($r * 255))) << 16)
-                        | (($g <= 0.0 ? 0 : ($g >= 1.0 ? 255 : (int) round($g * 255))) << 8)
-                        | ($b <= 0.0 ? 0 : ($b >= 1.0 ? 255 : (int) round($b * 255)));
+                    $px[$idx] = (($r <= 0.0 ? 0 : ($r >= 1.0 ? 255 : (int) ($r * 255 + 0.5))) << 16)
+                        | (($g <= 0.0 ? 0 : ($g >= 1.0 ? 255 : (int) ($g * 255 + 0.5))) << 8)
+                        | ($b <= 0.0 ? 0 : ($b >= 1.0 ? 255 : (int) ($b * 255 + 0.5)));
                     continue;
                 }
                 $this->blendAt($py, $qx, $src[0], $src[1], $src[2], $a, $mode);
@@ -479,19 +485,24 @@ final class Surface
             $y1 = $t;
         }
         $clip = $this->clip;
+        $px = &$this->px;
+        $xa = max(0, $x0);
+        $xb = min($this->width, $x1);
         for ($py = max(0, $y0); $py < min($this->height, $y1); $py++) {
             $base = $py * $this->width;
-            for ($px = max(0, $x0); $px < min($this->width, $x1); $px++) {
-                $idx = $base + $px;
-                $cm = $clip === null ? 255 : \ord($clip[$idx]);
-                if ($cm === 0) {
-                    continue;
+            if ($clip === null) {
+                for ($i = $base + $xa, $end = $base + $xb; $i < $end; $i++) {
+                    $px[$i] = self::TRANSPARENT;
                 }
+                continue;
+            }
+            for ($i = $base + $xa, $end = $base + $xb; $i < $end; $i++) {
+                $cm = \ord($clip[$i]);
                 if ($cm === 255) {
-                    $this->px[$idx] = self::TRANSPARENT;
-                    continue;
+                    $px[$i] = self::TRANSPARENT;
+                } elseif ($cm !== 0) {
+                    $this->fadeAlpha($py, $i - $base, $cm / 255);
                 }
-                $this->fadeAlpha($py, $px, $cm / 255);
             }
         }
     }
@@ -503,18 +514,23 @@ final class Surface
     /** Remove a fraction of a pixel's alpha, leaving its colour as it was. */
     private function fadeAlpha(int $y, int $x, float $fraction): void
     {
-        $i = $y * $this->width + $x;
         if ($fraction >= 1.0) {
-            $this->px[$i] = self::TRANSPARENT;
+            $this->setPixel($x, $y, self::TRANSPARENT);
             return;
         }
-        $p = $this->px[$i];
+        $p = $this->getPixel($x, $y);
         $o = (int) round((127 - ($p >> 24)) * (1 - $fraction));
-        $this->px[$i] = $o <= 0 ? self::TRANSPARENT : ($p & 0xFFFFFF) | ((127 - $o) << 24);
+        $this->setPixel($x, $y, $o <= 0 ? self::TRANSPARENT : ($p & 0xFFFFFF) | ((127 - $o) << 24));
     }
 
-    /** The pixel as a GD truecolor int. */
-    public function rawPixel(int $x, int $y): int
+    /** Index of pixel (x, y) in the pixel array; no bounds check. */
+    public function idx(int $x, int $y): int
+    {
+        return $y * $this->width + $x;
+    }
+
+    /** The pixel as a GD truecolor int; transparent outside the surface. */
+    public function getPixel(int $x, int $y): int
     {
         if ($x < 0 || $y < 0 || $x >= $this->width || $y >= $this->height) {
             return self::TRANSPARENT;
@@ -522,27 +538,45 @@ final class Surface
         return $this->px[$y * $this->width + $x];
     }
 
-    /** @return array{0:float,1:float,2:float,3:float} */
-    public function getPixel(int $x, int $y): array
+    /** Replace a pixel with a GD truecolor int; ignored outside the surface. */
+    public function setPixel(int $x, int $y, int $v): void
     {
-        if ($x < 0 || $y < 0 || $x >= $this->width || $y >= $this->height) {
-            return [0.0, 0.0, 0.0, 0.0];
+        if ($x >= 0 && $y >= 0 && $x < $this->width && $y < $this->height) {
+            $this->px[$y * $this->width + $x] = $v;
         }
-        $p = $this->px[$y * $this->width + $x];
-        return [(($p >> 16) & 0xFF) / 255, (($p >> 8) & 0xFF) / 255, ($p & 0xFF) / 255, (127 - ($p >> 24)) / 127];
+    }
+
+    /**
+     * Source-over of the colour in $v (its low 24 bits, 0xRRGGBB) with
+     * opacity $alpha7 (0..127, 127 = opaque) onto a pixel; ignored outside
+     * the surface.  Same arithmetic as the row fast path.
+     */
+    public function blendPixel(int $x, int $y, int $v, int $alpha7): void
+    {
+        if ($alpha7 <= 0 || $x < 0 || $y < 0 || $x >= $this->width || $y >= $this->height) {
+            return;
+        }
+        $i = $y * $this->width + $x;
+        $this->px[$i] = $alpha7 >= 127
+            ? $v & 0xFFFFFF
+            : self::overInt($this->px[$i], ($v >> 16) & 0xFF, ($v >> 8) & 0xFF, $v & 0xFF, $alpha7);
+    }
+
+    /** The pixel as straight RGBA floats 0..1; zeros outside the surface. @return array{0:float,1:float,2:float,3:float} */
+    public function colorAt(int $x, int $y): array
+    {
+        return self::unpack($this->getPixel($x, $y));
     }
 
     private function blendAt(int $y, int $x, float $sr, float $sg, float $sb, float $sa, string $mode): void
     {
-        $i = $y * $this->width + $x;
-        $p = $this->px[$i];
+        $p = $this->getPixel($x, $y);
         if ($mode === 'source-over') {
-            $this->px[$i] = self::overPixel($p, $sr, $sg, $sb, $sa);
+            $this->setPixel($x, $y, self::overPixel($p, $sr, $sg, $sb, $sa));
             return;
         }
-        $dst = [(($p >> 16) & 0xFF) / 255, (($p >> 8) & 0xFF) / 255, ($p & 0xFF) / 255, (127 - ($p >> 24)) / 127];
-        $out = Compositing::composite($mode, [$sr, $sg, $sb, $sa], $dst);
-        $this->px[$i] = self::pack($out[0], $out[1], $out[2], $out[3]);
+        $out = Compositing::composite($mode, [$sr, $sg, $sb, $sa], self::unpack($p));
+        $this->setPixel($x, $y, self::pack($out[0], $out[1], $out[2], $out[3]));
     }
 
     /**
@@ -553,7 +587,7 @@ final class Surface
      */
     private function overRun(int $y, int $x0, int $x1, float $sr, float $sg, float $sb, float $sa, ?int $rgb = null): void
     {
-        $os = (int) round($sa * 127);
+        $os = (int) ($sa * 127 + 0.5);
         if ($os <= 0) {
             return;
         }
@@ -587,15 +621,15 @@ final class Surface
     /** Source-over of straight colour (0..1 floats) onto a GD truecolor pixel. */
     private static function overPixel(int $d, float $sr, float $sg, float $sb, float $as): int
     {
-        $os = (int) round($as * 127);
+        $os = (int) ($as * 127 + 0.5);
         if ($os <= 0) {
             return $d;
         }
         return self::overInt(
             $d,
-            $sr <= 0.0 ? 0 : ($sr >= 1.0 ? 255 : (int) round($sr * 255)),
-            $sg <= 0.0 ? 0 : ($sg >= 1.0 ? 255 : (int) round($sg * 255)),
-            $sb <= 0.0 ? 0 : ($sb >= 1.0 ? 255 : (int) round($sb * 255)),
+            $sr <= 0.0 ? 0 : ($sr >= 1.0 ? 255 : (int) ($sr * 255 + 0.5)),
+            $sg <= 0.0 ? 0 : ($sg >= 1.0 ? 255 : (int) ($sg * 255 + 0.5)),
+            $sb <= 0.0 ? 0 : ($sb >= 1.0 ? 255 : (int) ($sb * 255 + 0.5)),
             $os,
         );
     }
@@ -630,7 +664,7 @@ final class Surface
     /** GD truecolor value of straight float RGBA. */
     public static function pack(float $r, float $g, float $b, float $a): int
     {
-        return ((127 - (int) round(max(0.0, min(1.0, $a)) * 127)) << 24)
+        return ((127 - (int) (max(0.0, min(1.0, $a)) * 127 + 0.5)) << 24)
             | (self::byte($r) << 16) | (self::byte($g) << 8) | self::byte($b);
     }
 
@@ -642,7 +676,7 @@ final class Surface
         if ($v >= 1.0) {
             return 255;
         }
-        return (int) round($v * 255);
+        return (int) ($v * 255 + 0.5);
     }
 
     /** @return array{0:float,1:float,2:float,3:float} */
@@ -768,10 +802,8 @@ final class Surface
         $id = $inv->d;
         $ie = $inv->e;
         $if = $inv->f;
-        $sp = $src->px;
         $opa = self::tables()[2];
         $over = $mode === 'source-over';
-        $px = &$this->px;
         for ($y = $y0; $y <= $y1; $y++) {
             $base = $y * $this->width;
             $cy = $y + 0.5;
@@ -791,7 +823,7 @@ final class Surface
                     $iy = (int) floor($sy + 0.5);
                     $ok = $ix >= 0 && $iy >= 0 && $ix < $sw && $iy < $sh;
                     if ($ok) {
-                        $p = $sp[$iy * $sw + $ix];
+                        $p = $src->getPixel($ix, $iy);
                         $ok = $p < 0x7F000000;
                     }
                     if (!$ok) {
@@ -820,33 +852,31 @@ final class Surface
                         $tx1 = $bx + 1 < 0 ? 0 : ($bx + 1 > $sw - 1 ? $sw - 1 : $bx + 1);
                         $ty0 = $by < 0 ? 0 : ($by > $sh - 1 ? $sh - 1 : $by);
                         $ty1 = $by + 1 < 0 ? 0 : ($by + 1 > $sh - 1 ? $sh - 1 : $by + 1);
-                        $r0 = $ty0 * $sw;
-                        $r1 = $ty1 * $sw;
                         $gx = 1 - $fx;
                         $gy = 1 - $fy;
                         $w0 = $gx * $gy;
                         $w1 = $fx * $gy;
                         $w2 = $gx * $fy;
                         $w3 = $fx * $fy;
-                        $p = $sp[$r0 + $tx0];
+                        $p = $src->getPixel($tx0, $ty0);
                         $pa = $opa[$p >> 24];
                         $cr = (($p >> 16) & 0xFF) / 255 * $pa * $w0;
                         $cg = (($p >> 8) & 0xFF) / 255 * $pa * $w0;
                         $cb = ($p & 0xFF) / 255 * $pa * $w0;
                         $ca = $pa * $w0;
-                        $p = $sp[$r0 + $tx1];
+                        $p = $src->getPixel($tx1, $ty0);
                         $pa = $opa[$p >> 24];
                         $cr += (($p >> 16) & 0xFF) / 255 * $pa * $w1;
                         $cg += (($p >> 8) & 0xFF) / 255 * $pa * $w1;
                         $cb += ($p & 0xFF) / 255 * $pa * $w1;
                         $ca += $pa * $w1;
-                        $p = $sp[$r1 + $tx0];
+                        $p = $src->getPixel($tx0, $ty1);
                         $pa = $opa[$p >> 24];
                         $cr += (($p >> 16) & 0xFF) / 255 * $pa * $w2;
                         $cg += (($p >> 8) & 0xFF) / 255 * $pa * $w2;
                         $cb += ($p & 0xFF) / 255 * $pa * $w2;
                         $ca += $pa * $w2;
-                        $p = $sp[$r1 + $tx1];
+                        $p = $src->getPixel($tx1, $ty1);
                         $pa = $opa[$p >> 24];
                         $cr += (($p >> 16) & 0xFF) / 255 * $pa * $w3;
                         $cg += (($p >> 8) & 0xFF) / 255 * $pa * $w3;
@@ -867,7 +897,7 @@ final class Surface
                         $iy = (int) floor($sy + 0.5);
                         $ok = $ix >= 0 && $iy >= 0 && $ix < $sw && $iy < $sh;
                         if ($ok) {
-                            $p = $sp[$iy * $sw + $ix];
+                            $p = $src->getPixel($ix, $iy);
                             $cr = (($p >> 16) & 0xFF) / 255;
                             $cg = (($p >> 8) & 0xFF) / 255;
                             $cb = ($p & 0xFF) / 255;
@@ -896,7 +926,7 @@ final class Surface
                     }
                 }
                 if ($over) {
-                    $px[$idx] = self::overPixel($px[$idx], $cr, $cg, $cb, $a);
+                    $this->setPixel($x, $y, self::overPixel($this->getPixel($x, $y), $cr, $cg, $cb, $a));
                 } else {
                     $this->blendAt($y, $x, $cr, $cg, $cb, $a, $mode);
                 }
@@ -912,13 +942,8 @@ final class Surface
      */
     private static function quadCoverage(int $x, int $y, array $quad): float
     {
-        $corners = 0;
-        foreach ([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]] as $o) {
-            if (self::inQuad($x + $o[0], $y + $o[1], $quad)) {
-                $corners++;
-            }
-        }
-        if ($corners === 4) {
+        if (self::inQuad($x, $y, $quad) && self::inQuad($x + 1.0, $y, $quad)
+            && self::inQuad($x + 1.0, $y + 1.0, $quad) && self::inQuad($x, $y + 1.0, $quad)) {
             return 1.0;
         }
         $hits = 0;
@@ -938,24 +963,13 @@ final class Surface
      */
     private static function inQuad(float $x, float $y, array $quad): bool
     {
-        $sign = 0;
-        for ($i = 0; $i < 8; $i += 2) {
-            $j = ($i + 2) % 8;
-            $cross = ($quad[$j] - $quad[$i]) * ($y - $quad[$i + 1])
-                - ($quad[$j + 1] - $quad[$i + 1]) * ($x - $quad[$i]);
-            if ($cross > 0.0) {
-                if ($sign < 0) {
-                    return false;
-                }
-                $sign = 1;
-            } elseif ($cross < 0.0) {
-                if ($sign > 0) {
-                    return false;
-                }
-                $sign = -1;
-            }
-        }
-        return true;
+        [$x0, $y0, $x1, $y1, $x2, $y2, $x3, $y3] = $quad;
+        // Same side of all four edges (or on one): the point is inside.
+        $c0 = ($x1 - $x0) * ($y - $y0) - ($y1 - $y0) * ($x - $x0);
+        $c1 = ($x2 - $x1) * ($y - $y1) - ($y2 - $y1) * ($x - $x1);
+        $c2 = ($x3 - $x2) * ($y - $y2) - ($y3 - $y2) * ($x - $x2);
+        $c3 = ($x0 - $x3) * ($y - $y3) - ($y0 - $y3) * ($x - $x3);
+        return !(($c0 > 0.0 || $c1 > 0.0 || $c2 > 0.0 || $c3 > 0.0) && ($c0 < 0.0 || $c1 < 0.0 || $c2 < 0.0 || $c3 < 0.0));
     }
 
     /**
@@ -1008,16 +1022,11 @@ final class Surface
                 }
                 $tx = $fx - $mx;
                 $ty = $fy - $my;
-                $at = static function (Surface $m, int $px, int $py, int $w, int $h) use ($opa): float {
-                    if ($px < 0 || $py < 0 || $px >= $w || $py >= $h) {
-                        return 0.0;
-                    }
-                    return $opa[$m->px[$py * $w + $px] >> 24];
-                };
-                $coverage = $at($mask, $mx, $my, $sw, $sh) * (1 - $tx) * (1 - $ty)
-                    + $at($mask, $mx + 1, $my, $sw, $sh) * $tx * (1 - $ty)
-                    + $at($mask, $mx, $my + 1, $sw, $sh) * (1 - $tx) * $ty
-                    + $at($mask, $mx + 1, $my + 1, $sw, $sh) * $tx * $ty;
+                // getPixel() is transparent outside the mask.
+                $coverage = $opa[$mask->getPixel($mx, $my) >> 24] * (1 - $tx) * (1 - $ty)
+                    + $opa[$mask->getPixel($mx + 1, $my) >> 24] * $tx * (1 - $ty)
+                    + $opa[$mask->getPixel($mx, $my + 1) >> 24] * (1 - $tx) * $ty
+                    + $opa[$mask->getPixel($mx + 1, $my + 1) >> 24] * $tx * $ty;
                 if ($coverage <= 0.0) {
                     continue;
                 }
