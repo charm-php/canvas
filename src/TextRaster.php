@@ -76,7 +76,6 @@ final class TextRaster
         }
 
         $surface = (new Codec\GdCodec())->fromGdImage($image);
-        \imagedestroy($image);
 
         if ($strokeWidth > 0.0) {
             $surface = self::outline($surface, $strokeWidth);

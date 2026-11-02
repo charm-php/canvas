@@ -20,6 +20,7 @@ class Context
     private string $lineCap = 'butt';
     private string $lineJoin = 'miter';
     private float $miterLimit = 10.0;
+    private string $fillRule = Raster::NONZERO;
     private float $globalAlpha = 1.0;
     private string $globalCompositeOperation = 'source-over';
     private string $font = '10px sans-serif';
@@ -56,6 +57,28 @@ class Context
         return $this->surface;
     }
 
+    /**
+     * Return the context to a freshly created state and clear the bitmap,
+     * which is what ctx.reset() does in a browser.
+     */
+    public function reset(): void
+    {
+        $fresh = new self($this->surface);
+        foreach ([
+            'ctm', 'fillStyle', 'strokeStyle', 'lineWidth', 'lineCap', 'lineJoin',
+            'miterLimit', 'globalAlpha', 'globalCompositeOperation', 'font', 'textAlign',
+            'textBaseline', 'direction', 'lineDash', 'lineDashOffset', 'imageSmoothingEnabled',
+            'imageSmoothingQuality', 'filter', 'shadowBlur', 'shadowColor', 'shadowOffsetX',
+            'shadowOffsetY', 'fillRule', 'path', 'stateStack', 'clipDepths',
+        ] as $property) {
+            $this->{$property} = $fresh->{$property};
+        }
+        while ($this->surface->clipDepth() > 0) {
+            $this->surface->popClip();
+        }
+        $this->surface->clear();
+    }
+
     // -----------------------------------------------------------------
     // Properties
     // -----------------------------------------------------------------
@@ -69,6 +92,7 @@ class Context
             'lineCap' => $this->lineCap,
             'lineJoin' => $this->lineJoin,
             'miterLimit' => $this->miterLimit,
+            'fillRule' => $this->fillRule,
             'globalAlpha' => $this->globalAlpha,
             'globalCompositeOperation' => $this->globalCompositeOperation,
             'font' => $this->font,
@@ -96,6 +120,12 @@ class Context
                 return;
             case 'strokeStyle':
                 $this->setStyle($value, false);
+                return;
+            case 'fillRule':
+                // The browser accepts only the two rules and ignores anything else.
+                if (\is_string($value) && ($value === Raster::NONZERO || $value === Raster::EVENODD)) {
+                    $this->fillRule = $value;
+                }
                 return;
             case 'lineWidth':
                 if (is_numeric($value) && $value > 0.0 && is_finite((float) $value)) {
@@ -218,7 +248,7 @@ class Context
     {
         $this->stateStack[] = [
             $this->ctm, $this->fillStyle, $this->strokeStyle, $this->lineWidth,
-            $this->lineCap, $this->lineJoin, $this->miterLimit, $this->globalAlpha,
+            $this->lineCap, $this->lineJoin, $this->miterLimit, $this->fillRule, $this->globalAlpha,
             $this->globalCompositeOperation, $this->font, $this->textAlign,
             $this->textBaseline, $this->direction, $this->lineDash,
             $this->lineDashOffset, $this->imageSmoothingEnabled,
@@ -239,7 +269,7 @@ class Context
         }
         [
             $this->ctm, $this->fillStyle, $this->strokeStyle, $this->lineWidth,
-            $this->lineCap, $this->lineJoin, $this->miterLimit, $this->globalAlpha,
+            $this->lineCap, $this->lineJoin, $this->miterLimit, $this->fillRule, $this->globalAlpha,
             $this->globalCompositeOperation, $this->font, $this->textAlign,
             $this->textBaseline, $this->direction, $this->lineDash,
             $this->lineDashOffset, $this->imageSmoothingEnabled,
@@ -367,9 +397,9 @@ class Context
     // Painting
     // -----------------------------------------------------------------
 
-    public function fill(string $rule = Raster::NONZERO): void
+    public function fill(?string $rule = null): void
     {
-        $rule = $rule === Raster::EVENODD ? Raster::EVENODD : Raster::NONZERO;
+        $rule = ($rule ?? $this->fillRule) === Raster::EVENODD ? Raster::EVENODD : Raster::NONZERO;
         $paint = $this->resolvePaint($this->fillStyle);
         if ($paint === null) {
             return;
@@ -500,9 +530,9 @@ class Context
         return Paint::solid($c[0], $c[1], $c[2], $c[3]);
     }
 
-    public function clip(string $rule = Raster::NONZERO): void
+    public function clip(?string $rule = null): void
     {
-        $rule = $rule === Raster::EVENODD ? Raster::EVENODD : Raster::NONZERO;
+        $rule = ($rule ?? $this->fillRule) === Raster::EVENODD ? Raster::EVENODD : Raster::NONZERO;
         $polygons = [];
         foreach ($this->path->flatten($this->ctm) as $p) {
             $polygons[] = $p['pts'];
@@ -913,6 +943,15 @@ class Context
         }
         $scale = $this->ctm->averageScale();
         $tolerance = $scale > 0.001 ? 0.12 / $scale : 0.12;
+        if (Stroker::nearPath(
+            $path->flatten($this->ctm, $tolerance),
+            $this->lineWidth * abs($scale),
+            $x,
+            $y,
+            $this->lineCap,
+        )) {
+            return true;
+        }
         $band = Stroker::build(
             $path->flatten(Matrix::identity(), $tolerance),
             $this->lineWidth,

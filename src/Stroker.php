@@ -29,6 +29,86 @@ final class Stroker
      * @param list<float> $dash
      * @return list<list<float>>
      */
+    /**
+     * Whether a point lies within half a line width of the path.
+     *
+     * The ring outline of a stroke cancels itself under the nonzero rule where
+     * a stroke is wider than the shape it follows, so hit testing consults the
+     * plain distance rule as well — that is the region a browser reports.
+     *
+     * @param list<array{pts:list<float>,closed:bool}> $lines device-space polylines
+     */
+    public static function nearPath(array $lines, float $lineWidth, float $x, float $y, string $cap = 'butt'): bool
+    {
+        $half = $lineWidth / 2.0;
+        if ($half <= 0.0) {
+            return false;
+        }
+        foreach ($lines as $line) {
+            $pts = $line['pts'];
+            $n = intdiv(count($pts), 2);
+            if ($n === 1) {
+                $dx = $x - $pts[0];
+                $dy = $y - $pts[1];
+                if ($dx * $dx + $dy * $dy <= $half * $half) {
+                    return true;
+                }
+                continue;
+            }
+            $closed = (bool) ($line['closed'] ?? false);
+            $segments = $closed ? $n : $n - 1;
+            for ($i = 0; $i < $segments; $i++) {
+                $j = ($i + 1) % $n;
+                $trimStart = !$closed && $cap === 'butt' && $i === 0;
+                $trimEnd = !$closed && $cap === 'butt' && $i === $segments - 1;
+                if (self::inBand($x, $y, $pts[$i * 2], $pts[$i * 2 + 1], $pts[$j * 2], $pts[$j * 2 + 1], $half, $trimStart, $trimEnd)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Distance band of one segment; the ends are flat when a butt cap closes
+     * the piece there and rounded otherwise, which is how joins and caps look.
+     */
+    private static function inBand(
+        float $x,
+        float $y,
+        float $ax,
+        float $ay,
+        float $bx,
+        float $by,
+        float $half,
+        bool $trimStart,
+        bool $trimEnd,
+    ): bool {
+        $vx = $bx - $ax;
+        $vy = $by - $ay;
+        $len2 = $vx * $vx + $vy * $vy;
+        if ($len2 <= 1e-18) {
+            $dx = $x - $ax;
+            $dy = $y - $ay;
+            return $dx * $dx + $dy * $dy <= $half * $half;
+        }
+        $t = (($x - $ax) * $vx + ($y - $ay) * $vy) / $len2;
+        if ($t < 0.0) {
+            if ($trimStart) {
+                return false;
+            }
+            $t = 0.0;
+        } elseif ($t > 1.0) {
+            if ($trimEnd) {
+                return false;
+            }
+            $t = 1.0;
+        }
+        $px = $ax + $t * $vx - $x;
+        $py = $ay + $t * $vy - $y;
+        return $px * $px + $py * $py <= $half * $half;
+    }
+
     public static function build(
         array $polylines,
         float $width,

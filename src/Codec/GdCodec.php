@@ -33,11 +33,7 @@ final class GdCodec implements CodecInterface
         if (!$image instanceof \GdImage) {
             return null;
         }
-        try {
-            return $this->fromGdImage($image);
-        } finally {
-            \imagedestroy($image);
-        }
+        return $this->fromGdImage($image);
     }
 
     public function fromGdImage(\GdImage $image): Surface
@@ -99,7 +95,6 @@ final class GdCodec implements CodecInterface
         \ob_start();
         \imagepng($image);
         $data = (string) \ob_get_clean();
-        \imagedestroy($image);
         return $data;
     }
 
@@ -120,8 +115,6 @@ final class GdCodec implements CodecInterface
         \ob_start();
         \imagejpeg($flat, null, max(0, min(100, $quality)));
         $data = (string) \ob_get_clean();
-        \imagedestroy($image);
-        \imagedestroy($flat);
         return $data;
     }
 
