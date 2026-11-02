@@ -1,9 +1,11 @@
 # Changelog
 
 ## [0.2.3]
-ext-imagick, when loaded, now draws the canvas (see README, "Renderers"). The
-public `Canvas`/`Context` API is unchanged; set `Canvas::$renderer = 'php'` to
-keep the old behaviour.
+A second renderer on ext-imagick, opt-in with `Canvas::$renderer = 'imagick'`
+(see README, "Renderers"). The PHP renderer stays the default: on the two
+benchmark frames it is faster than ImageMagick 6 in every case with the JIT
+warm (graph 13 vs 172 ms, mixed 138 vs 281 ms) and closer to Chrome. The public
+`Canvas`/`Context` API is unchanged.
 
 ### Added
 - `RendererInterface` (what `Context` needs from a pixel holder), implemented by

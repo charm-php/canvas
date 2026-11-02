@@ -33,7 +33,7 @@ final class RendererTest extends TestCase
         Canvas::$renderer = 'imagick';
         $this->assertInstanceOf(ImagickSurface::class, (new Canvas(4, 4))->surface());
         Canvas::$renderer = null;
-        $this->assertSame('imagick', Canvas::rendererName(), 'ext-imagick is loaded, so it is the default');
+        $this->assertSame('php', Canvas::rendererName(), 'the PHP renderer is the default even with ext-imagick loaded');
         $this->expectException(\InvalidArgumentException::class);
         Canvas::$renderer = 'gd';
         Canvas::rendererName();

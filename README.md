@@ -81,19 +81,21 @@ one it has and the `Canvas` API is the same.
   matching `COMPOSITE_*` operator, clips are alpha masks, images go through
   `distortImage`, linear gradients through a sampled strip.
 
-**Selection.** `Canvas::$renderer` is `null` (automatic), `'php'` or `'imagick'`.
-Automatic means Imagick when `extension_loaded('imagick')`, else PHP; set
-`Canvas::$renderer = 'php'` before creating canvases to opt out.
+**Selection.** `Canvas::$renderer` is `null` (the PHP renderer), `'php'` or
+`'imagick'`. The PHP renderer is the default even when ext-imagick is loaded;
+set `Canvas::$renderer = 'imagick'` before creating canvases to opt in.
 `Canvas::rendererName()` tells which one is in effect. Tests, `bin/conformance`
 and `benchmarks/run.php` read the `CANVAS_RENDERER=php|imagick` environment
 variable; `bin/conformance --renderer=imagick` does the same.
 
 **What differs.** The Imagick renderer matches Chrome on 329 of 336 conformance
 cases (PHP: 335), see the CHANGELOG for the exceptions. Antialiasing differs by
-a few levels of 255 at shape edges; alpha is 8-bit instead of 7. It is faster
-for large images and gradients on hosts without the JIT, and slower for scenes of
-a few shapes where per-call overhead dominates (see benchmarks in the
-CHANGELOG). `Surface::getPixel()`/`setPixel()` exist on both but are a single
+a few levels of 255 at shape edges; alpha is 8-bit instead of 7. It is slower
+than the PHP renderer on every measured frame with the JIT warm (graph 172 vs
+13 ms, mixed 281 vs 138 ms) and faster only for image- and gradient-heavy frames
+on hosts without the JIT (mixed 287 vs 434 ms); ImageMagick 6 has no fast path
+for drawing (a plain filled rectangle costs ~86 ns per pixel), so this is not
+expected to change. That is why it is opt-in. `Surface::getPixel()`/`setPixel()` exist on both but are a single
 Imagick call each on `ImagickSurface`; `idx()`/`blendPixel()` are PHP-only.
 
 ## Conformance

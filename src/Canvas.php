@@ -38,7 +38,9 @@ class Canvas
     /** The renderer name in effect: 'php' or 'imagick'. */
     public static function rendererName(): string
     {
-        $name = self::$renderer ?? (\extension_loaded('imagick') ? 'imagick' : 'php');
+        // The PHP renderer is the default even when ext-imagick is loaded: it is
+        // faster on every measured frame with the JIT warm and closer to Chrome.
+        $name = self::$renderer ?? 'php';
         if ($name !== 'php' && $name !== 'imagick') {
             throw new \InvalidArgumentException("Unknown renderer: $name");
         }
