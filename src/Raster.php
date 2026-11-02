@@ -274,12 +274,19 @@ final class Raster
                 if (count($xs) < 2) {
                     continue;
                 }
-                asort($xs); // C-speed sort; $ds is read through the surviving keys
+                if (count($xs) === 2) {
+                    // The common case needs no sort call (asort is stable: ties keep order).
+                    $order = $xs[1] < $xs[0] ? [1, 0] : [0, 1];
+                } else {
+                    asort($xs); // C-speed sort; $ds is read through the surviving keys
+                    $order = array_keys($xs);
+                }
 
                 $w = 0;
                 $xa = 0.0;
                 $odd = false;
-                foreach ($xs as $i => $x) {
+                foreach ($order as $i) {
+                    $x = $xs[$i];
                     if ($nonZero) {
                         $before = $w;
                         $w += $ds[$i];

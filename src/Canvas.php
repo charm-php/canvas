@@ -235,14 +235,8 @@ class Canvas
         $on = '';
         $rgb = '';
         $bg = $background === null ? null : ColorParser::parseNormalized($background);
-        // Rows of big-endian GD truecolor ints (alpha 0 opaque .. 127 transparent).
-        $all = $this->surface->clonePixels();
-        $rows = '';
-        for ($y = 0; $y < $sh; $y++) {
-            $rows .= \pack('N*', ...\array_slice($all, $y * $sw, $sw));
-        }
-        unset($all);
-        $stride = $sw * 4;
+        // GD truecolor ints (alpha 0 opaque .. 127 transparent), row after row.
+        $px = $this->surface->clonePixels();
         $memo = [];
         $xRange = [];
         for ($tx = 0; $tx < $w; $tx++) {
@@ -253,42 +247,49 @@ class Canvas
         for ($ty = 0; $ty < $h; $ty++) {
             $y0 = (int) floor($ty * $sh / $h);
             $y1 = min($sh, max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h)));
-            foreach ($xRange as $tx => [$x0, $x1]) {
-
-                // Equal pixels give an equal dot, and flat areas repeat.
-                $key = \chr($x1 - $x0);
-                for ($y = $y0; $y < $y1; $y++) {
-                    $key .= \substr($rows, $y * $stride + $x0 * 4, ($x1 - $x0) * 4);
+            foreach ($xRange as [$x0, $x1]) {
+                // A flat block (every pixel equal) is the common case and gives
+                // the same dot as one pixel does; those repeat, so they are memoised.
+                $first = $px[$y0 * $sw + $x0];
+                $flat = true;
+                for ($y = $y0; $y < $y1 && $flat; $y++) {
+                    for ($i = $y * $sw + $x0, $end = $y * $sw + $x1; $i < $end; $i++) {
+                        if ($px[$i] !== $first) {
+                            $flat = false;
+                            break;
+                        }
+                    }
                 }
-                if (isset($memo[$key])) {
-                    $on .= $memo[$key][0];
-                    $rgb .= $memo[$key][1];
+                if ($flat && isset($memo[$first])) {
+                    $on .= $memo[$first][0];
+                    $rgb .= $memo[$first][1];
                     continue;
                 }
-                // [1..] = GD truecolor int of each pixel of the block, row after row
-                $px = \unpack('N*', $key, 1);
 
                 $r = $g = $b = 0.0;
                 $weight = 0.0;
-                foreach ($px as $p) {
-                    $pr = ($p >> 16) & 0xFF;
-                    $pg = ($p >> 8) & 0xFF;
-                    $pb = $p & 0xFF;
-                    if ($bg === null) {
-                        if ($p >= 0x7F000000) {
-                            continue;
+                for ($y = $y0; $y < $y1; $y++) {
+                    for ($i = $y * $sw + $x0, $end = $y * $sw + $x1; $i < $end; $i++) {
+                        $p = $px[$i];
+                        $pr = ($p >> 16) & 0xFF;
+                        $pg = ($p >> 8) & 0xFF;
+                        $pb = $p & 0xFF;
+                        if ($bg === null) {
+                            if ($p >= 0x7F000000) {
+                                continue;
+                            }
+                            $a = (127 - ($p >> 24)) / 127;
+                        } else {
+                            $a = (min(abs($pr / 255 - $bg[0]), 1.0) + min(abs($pg / 255 - $bg[1]), 1.0) + min(abs($pb / 255 - $bg[2]), 1.0)) / 3.0;
+                            if ($a <= 0.0) {
+                                continue;
+                            }
                         }
-                        $a = (127 - ($p >> 24)) / 127;
-                    } else {
-                        $a = (min(abs($pr / 255 - $bg[0]), 1.0) + min(abs($pg / 255 - $bg[1]), 1.0) + min(abs($pb / 255 - $bg[2]), 1.0)) / 3.0;
-                        if ($a <= 0.0) {
-                            continue;
-                        }
+                        $r += $pr / 255 * $a;
+                        $g += $pg / 255 * $a;
+                        $b += $pb / 255 * $a;
+                        $weight += $a;
                     }
-                    $r += $pr / 255 * $a;
-                    $g += $pg / 255 * $a;
-                    $b += $pb / 255 * $a;
-                    $weight += $a;
                 }
 
                 if ($weight <= 0.0) {
@@ -298,10 +299,12 @@ class Canvas
                         . \chr((int) round($g / $weight * 255))
                         . \chr((int) round($b / $weight * 255))];
                 }
-                if (\count($memo) > 4096) {
-                    $memo = [];
+                if ($flat) {
+                    if (\count($memo) > 4096) {
+                        $memo = [];
+                    }
+                    $memo[$first] = $dot;
                 }
-                $memo[$key] = $dot;
                 $on .= $dot[0];
                 $rgb .= $dot[1];
             }

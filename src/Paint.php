@@ -182,19 +182,12 @@ final class Paint
             return $this->pattern->colorAt($ux, $uy);
         }
 
-        return $this->gradientColor($ux, $uy);
-    }
-
-    /** @return array{0:float,1:float,2:float,3:float} */
-    private function gradientColor(float $ux, float $uy): array
-    {
         if (!$this->radial) {
             if ($this->lenSq <= 0.0) {
                 // Zero-length linear gradient: browsers paint nothing.
                 return [0.0, 0.0, 0.0, 0.0];
             }
-            $t = (($ux - $this->x0) * $this->dx + ($uy - $this->y0) * $this->dy) / $this->lenSq;
-            return $this->sample($t);
+            return $this->sample((($ux - $this->x0) * $this->dx + ($uy - $this->y0) * $this->dy) / $this->lenSq);
         }
 
         $t = $this->radialParameter($ux, $uy);
