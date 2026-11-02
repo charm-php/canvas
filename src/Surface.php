@@ -370,6 +370,12 @@ final class Surface
         $constant = $paint->isConstant() ? $paint->constant() : null;
         $over = $mode === 'source-over';
         $px = &$this->px;
+        $qa = max(0, $x0);
+        $qb = min($this->width - 1, $x1);
+        $cxs = [];
+        for ($qx = $qa; $qx <= $qb; $qx++) {
+            $cxs[$qx] = min($x + $w, (float) ($qx + 1)) - max($x, (float) $qx);
+        }
         for ($py = max(0, $y0); $py <= min($this->height - 1, $y1); $py++) {
             $cy = min($y + $h, (float) ($py + 1)) - max($y, (float) $py);
             if ($cy <= 0.0) {
@@ -377,8 +383,8 @@ final class Surface
             }
             $base = $py * $this->width;
             $rowY = $py + 0.5;
-            for ($qx = max(0, $x0); $qx <= min($this->width - 1, $x1); $qx++) {
-                $cx = min($x + $w, (float) ($qx + 1)) - max($x, (float) $qx);
+            for ($qx = $qa; $qx <= $qb; $qx++) {
+                $cx = $cxs[$qx];
                 if ($cx <= 0.0) {
                     continue;
                 }
@@ -398,9 +404,17 @@ final class Surface
                     }
                 }
                 if ($over) {
-                    $px[$idx] = $a >= 1.0
-                        ? (self::byte($src[0]) << 24) | (self::byte($src[1]) << 16) | (self::byte($src[2]) << 8) | 0xFF
-                        : self::overPixel($px[$idx], $src[0], $src[1], $src[2], $a);
+                    if ($a < 1.0) {
+                        $px[$idx] = self::overPixel($px[$idx], $src[0], $src[1], $src[2], $a);
+                        continue;
+                    }
+                    $r = $src[0];
+                    $g = $src[1];
+                    $b = $src[2];
+                    $px[$idx] = (($r <= 0.0 ? 0 : ($r >= 1.0 ? 255 : (int) round($r * 255))) << 24)
+                        | (($g <= 0.0 ? 0 : ($g >= 1.0 ? 255 : (int) round($g * 255))) << 16)
+                        | (($b <= 0.0 ? 0 : ($b >= 1.0 ? 255 : (int) round($b * 255))) << 8)
+                        | 0xFF;
                     continue;
                 }
                 $this->blendAt($py, $qx, $src[0], $src[1], $src[2], $a, $mode);
@@ -729,24 +743,45 @@ final class Surface
                         $by = (int) floor($sy);
                         $fx = $sx - $bx;
                         $fy = $sy - $by;
-                        $cr = $cg = $cb = $ca = 0.0;
-                        for ($k = 0; $k < 4; $k++) {
-                            $dx = $k & 1;
-                            $w = ($dx === 0 ? 1 - $fx : $fx) * ($k < 2 ? 1 - $fy : $fy);
-                            if ($w <= 0.0) {
-                                continue;
-                            }
-                            $tx = min($sw - 1, max(0, $bx + $dx));
-                            $ty = min($sh - 1, max(0, $by + ($k >> 1)));
-                            $p = $sp[$ty * $sw + $tx];
-                            // Premultiplied interpolation, so transparent edges do
-                            // not bleed their colour into neighbours.
-                            $pa = ($p & 0xFF) / 255;
-                            $cr += ($p >> 24) / 255 * $pa * $w;
-                            $cg += (($p >> 16) & 0xFF) / 255 * $pa * $w;
-                            $cb += (($p >> 8) & 0xFF) / 255 * $pa * $w;
-                            $ca += $pa * $w;
-                        }
+                        // Four taps, clamped to the image edge, interpolated
+                        // premultiplied so transparent edges do not bleed their
+                        // colour into neighbours.
+                        $tx0 = $bx < 0 ? 0 : ($bx > $sw - 1 ? $sw - 1 : $bx);
+                        $tx1 = $bx + 1 < 0 ? 0 : ($bx + 1 > $sw - 1 ? $sw - 1 : $bx + 1);
+                        $ty0 = $by < 0 ? 0 : ($by > $sh - 1 ? $sh - 1 : $by);
+                        $ty1 = $by + 1 < 0 ? 0 : ($by + 1 > $sh - 1 ? $sh - 1 : $by + 1);
+                        $r0 = $ty0 * $sw;
+                        $r1 = $ty1 * $sw;
+                        $gx = 1 - $fx;
+                        $gy = 1 - $fy;
+                        $w0 = $gx * $gy;
+                        $w1 = $fx * $gy;
+                        $w2 = $gx * $fy;
+                        $w3 = $fx * $fy;
+                        $p = $sp[$r0 + $tx0];
+                        $pa = ($p & 0xFF) / 255;
+                        $cr = ($p >> 24) / 255 * $pa * $w0;
+                        $cg = (($p >> 16) & 0xFF) / 255 * $pa * $w0;
+                        $cb = (($p >> 8) & 0xFF) / 255 * $pa * $w0;
+                        $ca = $pa * $w0;
+                        $p = $sp[$r0 + $tx1];
+                        $pa = ($p & 0xFF) / 255;
+                        $cr += ($p >> 24) / 255 * $pa * $w1;
+                        $cg += (($p >> 16) & 0xFF) / 255 * $pa * $w1;
+                        $cb += (($p >> 8) & 0xFF) / 255 * $pa * $w1;
+                        $ca += $pa * $w1;
+                        $p = $sp[$r1 + $tx0];
+                        $pa = ($p & 0xFF) / 255;
+                        $cr += ($p >> 24) / 255 * $pa * $w2;
+                        $cg += (($p >> 16) & 0xFF) / 255 * $pa * $w2;
+                        $cb += (($p >> 8) & 0xFF) / 255 * $pa * $w2;
+                        $ca += $pa * $w2;
+                        $p = $sp[$r1 + $tx1];
+                        $pa = ($p & 0xFF) / 255;
+                        $cr += ($p >> 24) / 255 * $pa * $w3;
+                        $cg += (($p >> 16) & 0xFF) / 255 * $pa * $w3;
+                        $cb += (($p >> 8) & 0xFF) / 255 * $pa * $w3;
+                        $ca += $pa * $w3;
                         if ($ca <= 0.0) {
                             $ok = false;
                         } else {

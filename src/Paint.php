@@ -20,6 +20,15 @@ final class Paint
     private ?Pattern $pattern = null;
     private ?Matrix $deviceToUser = null;
 
+    private float $firstT = 0.0;
+    private float $lastT = 0.0;
+    /** @var array{0:float,1:float,2:float,3:float} */
+    private array $firstColor = [0.0, 0.0, 0.0, 0.0];
+    private array $lastColor = [0.0, 0.0, 0.0, 0.0];
+
+    /** Per stop pair: [t0, t1, range, r0, g0, b0, a0, dr, dg, db, da] (premultiplied). */
+    private array $segs = [];
+
     /** Interpolated gradient stop cache: [offset, r, g, b, a] with r,g,b premultiplied. */
     private array $stops = [];
     private bool $radial = false;
@@ -85,6 +94,18 @@ final class Paint
                 $c[2] * $c[3],
                 $c[3],
             ];
+        }
+
+        $first = $p->stops[0];
+        $last = $p->stops[count($p->stops) - 1];
+        $p->firstT = $first[0];
+        $p->lastT = $last[0];
+        $p->firstColor = self::unpremultiply($first[1], $first[2], $first[3], $first[4]);
+        $p->lastColor = self::unpremultiply($last[1], $last[2], $last[3], $last[4]);
+        for ($i = 0; $i + 1 < count($p->stops); $i++) {
+            [$t0, $r0, $g0, $b0, $a0] = $p->stops[$i];
+            [$t1, $r1, $g1, $b1, $a1] = $p->stops[$i + 1];
+            $p->segs[] = [$t0, $t1, $t1 - $t0, $r0, $g0, $b0, $a0, $r1 - $r0, $g1 - $g0, $b1 - $b0, $a1 - $a0];
         }
 
         if ($p->radial) {
@@ -234,43 +255,44 @@ final class Paint
      */
     private function sample(float $t): array
     {
-        $stops = $this->stops;
-        $n = count($stops);
-        if ($n === 0) {
-            return [0.0, 0.0, 0.0, 0.0];
+        if ($t <= $this->firstT) {
+            return $this->firstColor;
         }
-        $last = $stops[$n - 1];
-        if ($t <= $stops[0][0]) {
-            [, $pr, $pg, $pb, $a] = $stops[0];
-        } elseif ($t >= $last[0]) {
-            [, $pr, $pg, $pb, $a] = $last;
-        } else {
-            [, $pr, $pg, $pb, $a] = $last;
-            for ($i = 0; $i < $n - 1; $i++) {
-                $s0 = $stops[$i];
-                $s1 = $stops[$i + 1];
-                if ($t >= $s0[0] && $t <= $s1[0]) {
-                    $range = $s1[0] - $s0[0];
-                    $f = $range > 0.0 ? ($t - $s0[0]) / $range : 1.0;
-                    $pr = $s0[1] + ($s1[1] - $s0[1]) * $f;
-                    $pg = $s0[2] + ($s1[2] - $s0[2]) * $f;
-                    $pb = $s0[3] + ($s1[3] - $s0[3]) * $f;
-                    $a = $s0[4] + ($s1[4] - $s0[4]) * $f;
-                    break;
+        if ($t >= $this->lastT) {
+            return $this->lastColor;
+        }
+        foreach ($this->segs as $g) {
+            if ($t >= $g[0] && $t <= $g[1]) {
+                $f = $g[2] > 0.0 ? ($t - $g[0]) / $g[2] : 1.0;
+                $a = $g[6] + $g[10] * $f;
+                if ($a <= 0.0) {
+                    return [0.0, 0.0, 0.0, 0.0];
                 }
+                $r = ($g[3] + $g[7] * $f) / $a;
+                $gr = ($g[4] + $g[8] * $f) / $a;
+                $b = ($g[5] + $g[9] * $f) / $a;
+                return [
+                    $r < 0.0 ? 0.0 : ($r > 1.0 ? 1.0 : $r),
+                    $gr < 0.0 ? 0.0 : ($gr > 1.0 ? 1.0 : $gr),
+                    $b < 0.0 ? 0.0 : ($b > 1.0 ? 1.0 : $b),
+                    $a > 1.0 ? 1.0 : $a,
+                ];
             }
         }
+        return $this->lastColor;
+    }
+
+    /** @return array{0:float,1:float,2:float,3:float} */
+    private static function unpremultiply(float $pr, float $pg, float $pb, float $a): array
+    {
         if ($a <= 0.0) {
             return [0.0, 0.0, 0.0, 0.0];
         }
-        $r = $pr / $a;
-        $g = $pg / $a;
-        $b = $pb / $a;
         return [
-            $r < 0.0 ? 0.0 : ($r > 1.0 ? 1.0 : $r),
-            $g < 0.0 ? 0.0 : ($g > 1.0 ? 1.0 : $g),
-            $b < 0.0 ? 0.0 : ($b > 1.0 ? 1.0 : $b),
-            $a > 1.0 ? 1.0 : $a,
+            max(0.0, min(1.0, $pr / $a)),
+            max(0.0, min(1.0, $pg / $a)),
+            max(0.0, min(1.0, $pb / $a)),
+            max(0.0, min(1.0, $a)),
         ];
     }
 }

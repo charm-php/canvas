@@ -47,15 +47,16 @@ final class GdCodec implements CodecInterface
         \imagesavealpha($image, true);
 
         $surface = new Surface($w, $h);
+        // GD alpha is 0 (opaque) .. 127 (transparent); Surface alpha is 0..255.
+        $alpha = [];
+        for ($i = 0; $i < 128; $i++) {
+            $alpha[$i] = (int) round((127 - $i) * 255 / 127) << 24;
+        }
         $packed = [];
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
                 $c = \imagecolorat($image, $x, $y);
-                $gdAlpha = ($c >> 24) & 0x7F;
-                $packed[] = ((int) round((127 - $gdAlpha) * 255 / 127) << 24)
-                    | (($c >> 16) & 0xFF) << 16
-                    | (($c >> 8) & 0xFF) << 8
-                    | ($c & 0xFF);
+                $packed[] = $alpha[($c >> 24) & 0x7F] | ($c & 0xFFFFFF);
             }
         }
         $surface->setPixels($packed);
@@ -70,20 +71,18 @@ final class GdCodec implements CodecInterface
         \imagealphablending($image, false);
         \imagesavealpha($image, true);
 
+        // A truecolor GD pixel is its own colour value: alpha 0..127 in the top
+        // byte, so no palette allocation is needed.
+        $alpha = [];
+        for ($i = 0; $i < 256; $i++) {
+            $alpha[$i] = (int) round((255 - $i) * 127 / 255) << 24;
+        }
         $px = $surface->clonePixels();
         $i = 0;
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
                 $p = $px[$i++];
-                $a = (($p >> 24) & 0xFF);
-                $gd = \imagecolorallocatealpha(
-                    $image,
-                    ($p >> 16) & 0xFF,
-                    ($p >> 8) & 0xFF,
-                    $p & 0xFF,
-                    (int) round((255 - $a) * 127 / 255),
-                );
-                \imagesetpixel($image, $x, $y, $gd === false ? 0 : $gd);
+                \imagesetpixel($image, $x, $y, $alpha[$p >> 24 & 0xFF] | ($p & 0xFFFFFF));
             }
         }
         return $image;
