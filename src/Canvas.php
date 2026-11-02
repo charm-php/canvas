@@ -238,13 +238,16 @@ class Canvas
         $rows = $this->surface->toRgbaString();
         $stride = $sw * 4;
         $memo = [];
+        $xRange = [];
+        for ($tx = 0; $tx < $w; $tx++) {
+            $x0 = (int) floor($tx * $sw / $w);
+            $xRange[$tx] = [$x0, min($sw, max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w)))];
+        }
 
         for ($ty = 0; $ty < $h; $ty++) {
             $y0 = (int) floor($ty * $sh / $h);
             $y1 = min($sh, max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h)));
-            for ($tx = 0; $tx < $w; $tx++) {
-                $x0 = (int) floor($tx * $sw / $w);
-                $x1 = min($sw, max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w)));
+            foreach ($xRange as $tx => [$x0, $x1]) {
 
                 // Equal pixels give an equal dot, and flat areas repeat.
                 $key = \chr($x1 - $x0);

@@ -542,6 +542,13 @@ final class Surface
         $new = '';
         $sBytes = $rgb . \chr((int) round($sa * 255));
         for ($o = $x0 * 4, $end = $x1 * 4 + 4; $o < $end; $o += 4) {
+            // Whole transparent pixels in one go (strspn runs in C).
+            $z = intdiv(strspn($row, "\0", $o, $end - $o), 4);
+            if ($z > 0) {
+                $new .= str_repeat($sBytes, $z);
+                $o += $z * 4 - 4;
+                continue;
+            }
             $d = substr($row, $o, 4);
             if ($d !== $lastD) {
                 $lastD = $d;
