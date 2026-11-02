@@ -219,10 +219,12 @@ final class Surface
         $h = $this->height;
         $clip = $this->clip;
         $constant = $paint->isConstant() ? $paint->constant() : null;
+        $rgb = $constant === null ? null
+            : \chr(self::byte($constant[0])) . \chr(self::byte($constant[1])) . \chr(self::byte($constant[2]));
 
         Raster::walk($polygons, $rule, $w, $h, $this->verticalSamples,
             function (int $y, array $cov, int $minX, int $maxX, int $fullMin, int $fullMax) use (
-                $w, $h, $clip, $constant, $alpha, $mode, $paint
+                $w, $h, $clip, $constant, $rgb, $alpha, $mode, $paint
             ): void {
                 if ($y < 0 || $y >= $h) {
                     return;
@@ -236,7 +238,7 @@ final class Surface
                     $from = max(0, $fullMin);
                     $to = min($w - 1, $fullMax);
                     if ($over && $constant !== null && $clip === null) {
-                        $this->overRun($y, $from, $to, $constant[0], $constant[1], $constant[2], min(1.0, $constant[3] * $alpha));
+                        $this->overRun($y, $from, $to, $constant[0], $constant[1], $constant[2], min(1.0, $constant[3] * $alpha), $rgb);
                     } else {
                         for ($x = $from; $x <= $to; $x++) {
                             $cov[$x] = 1.0;
@@ -263,7 +265,7 @@ final class Surface
                     }
                     if ($over) {
                         if ($a > 0.0) {
-                            $this->overRun($y, $x, $x, $src[0], $src[1], $src[2], min(1.0, $a));
+                            $this->overRun($y, $x, $x, $src[0], $src[1], $src[2], min(1.0, $a), $rgb);
                         }
                         continue;
                     }
@@ -499,37 +501,46 @@ final class Surface
      * Compositing::composite() for source-over, on bytes, with no allocation
      * per pixel; a run of identical backdrops reuses the previous result.
      */
-    private function overRun(int $y, int $x0, int $x1, float $sr, float $sg, float $sb, float $sa): void
+    private function overRun(int $y, int $x0, int $x1, float $sr, float $sg, float $sb, float $sa, ?string $rgb = null): void
     {
         if ($sa <= 0.0) {
+            return;
+        }
+        $rgb ??= \chr(self::byte($sr)) . \chr(self::byte($sg)) . \chr(self::byte($sb));
+        if ($x0 === $x1) {
+            // One pixel: edit the row in place instead of copying it.
+            $o = $x0 * 4;
+            $d3 = $this->rows[$y][$o + 3];
+            if ($sa >= 1.0 || $d3 === "\0") {
+                $this->rows[$y][$o] = $rgb[0];
+                $this->rows[$y][$o + 1] = $rgb[1];
+                $this->rows[$y][$o + 2] = $rgb[2];
+                $this->rows[$y][$o + 3] = $sa >= 1.0 ? "\xFF" : \chr((int) round($sa * 255));
+                return;
+            }
+            $out = self::overPixel(substr($this->rows[$y], $o, 4), $sr, $sg, $sb, $sa);
+            $this->rows[$y][$o] = $out[0];
+            $this->rows[$y][$o + 1] = $out[1];
+            $this->rows[$y][$o + 2] = $out[2];
+            $this->rows[$y][$o + 3] = $out[3];
             return;
         }
         $row = $this->rows[$y];
         if ($sa >= 1.0) {
             $n = $x1 - $x0 + 1;
-            $this->rows[$y] = substr_replace(
-                $row,
-                str_repeat(\chr(self::byte($sr)) . \chr(self::byte($sg)) . \chr(self::byte($sb)) . "\xFF", $n),
-                $x0 * 4,
-                $n * 4,
-            );
+            $this->rows[$y] = substr_replace($row, str_repeat($rgb . "\xFF", $n), $x0 * 4, $n * 4);
             return;
         }
         $lastD = null;
         $lastO = '';
         $new = '';
-        $sBytes = null;
+        $sBytes = $rgb . \chr((int) round($sa * 255));
         for ($o = $x0 * 4, $end = $x1 * 4 + 4; $o < $end; $o += 4) {
             $d = substr($row, $o, 4);
             if ($d !== $lastD) {
                 $lastD = $d;
-                if ($d[3] === "\0") {
-                    // Over nothing the result is the source colour itself.
-                    $sBytes ??= \chr(self::byte($sr)) . \chr(self::byte($sg)) . \chr(self::byte($sb)) . \chr((int) round($sa * 255));
-                    $lastO = $sBytes;
-                } else {
-                    $lastO = self::overPixel($d, $sr, $sg, $sb, $sa);
-                }
+                // Over nothing the result is the source colour itself.
+                $lastO = $d[3] === "\0" ? $sBytes : self::overPixel($d, $sr, $sg, $sb, $sa);
             }
             $new .= $lastO;
         }
