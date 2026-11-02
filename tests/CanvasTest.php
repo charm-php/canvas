@@ -368,4 +368,85 @@ final class CanvasTest extends TestCase
         $x->globalCompositeOperation = 'nope';
         $this->assertSame('source-over', $x->globalCompositeOperation);
     }
+
+    private function opaqueCount(Canvas $c): int
+    {
+        $n = 0;
+        $rgba = $c->toPixels()['rgba'];
+        for ($i = 3, $len = \strlen($rgba); $i < $len; $i += 4) {
+            if (\ord($rgba[$i]) === 255) {
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    public function testThinStrokeUnderNonUniformScaleKeepsItsWidth(): void
+    {
+        [$c, $x] = $this->canvas(80, 64);
+        $x->scale(8, 16);
+        $x->strokeStyle = '#000';
+        $x->lineWidth = 0.25;
+        $x->beginPath();
+        $x->moveTo(1, 0.5);
+        $x->lineTo(1, 3.5);
+        $x->lineTo(9, 3.5);
+        $x->stroke();
+        $this->assertGreaterThan(250, $this->opaqueCount($c), 'the width is scaled with the transform');
+        $dots = $c->toDots(20, 16);
+        $this->assertGreaterThanOrEqual(28, \substr_count($dots['on'], "\1"));
+    }
+
+    public function testClearRectUnderScaleClearsDevicePixels(): void
+    {
+        [$c, $x] = $this->canvas(40, 40);
+        $x->fillStyle = '#f00';
+        $x->fillRect(0, 0, 40, 40);
+        $x->scale(10, 10);
+        $x->clearRect(1, 1, 2, 2);
+        $this->assertSame(127, (\imagecolorat($c->toGd(), 20, 20) >> 24) & 0x7F, 'cleared to transparent');
+        $this->assertSame(255, $this->px($c, 5, 5)[3]);
+    }
+
+    public function testDrawImageUnderScaleFromEverySource(): void
+    {
+        $gd = \imagecreatetruecolor(4, 4);
+        \imagefill($gd, 0, 0, (int) \imagecolorallocate($gd, 255, 0, 0));
+        \ob_start();
+        \imagepng($gd);
+        $png = (string) \ob_get_clean();
+        $file = \tempnam(\sys_get_temp_dir(), 'cv') . '.png';
+        \file_put_contents($file, $png);
+        try {
+            foreach ([$gd, $png, $file] as $source) {
+                [$c, $x] = $this->canvas(40, 40);
+                $x->scale(10, 10);
+                $x->drawImage($source, 1, 1, 2, 2);
+                $this->assertSame(400, $this->opaqueCount($c), 'a 2x2 unit image is 20x20 pixels');
+            }
+        } finally {
+            @\unlink($file);
+        }
+    }
+
+    public function testToDotsAtTheCanvasOwnSize(): void
+    {
+        [$c, $x] = $this->canvas(8, 4);
+        $x->fillStyle = '#0f0';
+        $x->fillRect(0, 0, 3, 4);
+        $dots = $c->toDots(8, 4);
+        $this->assertSame(8 * 4, \strlen($dots['on']));
+        $this->assertSame(str_repeat("\1\1\1\0\0\0\0\0", 4), $dots['on']);
+        $this->assertSame("\0\xFF\0", \substr($dots['rgb'], 0, 3));
+    }
+
+    public function testToDotsMapsFractionalRectToWholeDots(): void
+    {
+        [$c, $x] = $this->canvas(64, 16);
+        $x->scale(8, 16);
+        $x->fillStyle = '#fff';
+        $x->fillRect(1.5, 0, 6, 1);
+        $dots = $c->toDots(16, 4);
+        $this->assertSame(\str_repeat("\0", 3) . \str_repeat("\1", 12) . "\0", \substr($dots['on'], 0, 16));
+    }
 }

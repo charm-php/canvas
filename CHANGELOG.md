@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.1]
+Rendering is about 7 times faster with the same output: a 416x320 graph frame
+(`php benchmarks/graph-frame.php .`) went from 220 ms to 31 ms, and `toDots`
+on it from 52 ms to 9 ms. `bin/conformance` still agrees with Chrome on 335 of
+336 cases, with the same documented divergence.
+
+### Changed
+- Pixels are kept as RGBA8 row strings, so `toPixels`, `getImageData`,
+  `putImageData` and PNG encoding no longer convert pixel by pixel
+- Fills cost per edge rather than per covered column; opaque shapes and flat
+  runs are written a row segment at a time
+- `toDots` reads pixels a row at a time and reuses identical blocks
+- A fully cleared pixel no longer keeps its old colour behind alpha 0
+
+### Added
+- `benchmarks/graph-frame.php`, the frame used for the numbers above
+- Regression tests for thin strokes under non-uniform scale, `clearRect` and
+  `drawImage` under scale, and `toDots` at the canvas size and on fractional edges
+
 ## [0.2.0] - 2026-11-02
 Reworked so that the API means what the browser's means. The renderer no longer
 asks GD to draw anything: pixels, geometry and compositing live in this package,
