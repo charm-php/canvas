@@ -46,17 +46,14 @@ final class GdCodec implements CodecInterface
         \imagealphablending($image, false);
         \imagesavealpha($image, true);
 
+        // A truecolor GD pixel is the Surface's own pixel format: no remapping.
+        // (imagegd2()/imagegd() would allow a bulk transfer, but common PHP
+        // builds ship without GD/GD2 format support, so pixels go one by one.)
         $surface = new Surface($w, $h);
-        // GD alpha is 0 (opaque) .. 127 (transparent); Surface alpha is 0..255.
-        $alpha = [];
-        for ($i = 0; $i < 128; $i++) {
-            $alpha[$i] = (int) round((127 - $i) * 255 / 127) << 24;
-        }
         $packed = [];
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
-                $c = \imagecolorat($image, $x, $y);
-                $packed[] = $alpha[($c >> 24) & 0x7F] | ($c & 0xFFFFFF);
+                $packed[] = \imagecolorat($image, $x, $y);
             }
         }
         $surface->setPixels($packed);
@@ -70,19 +67,17 @@ final class GdCodec implements CodecInterface
         $image = \imagecreatetruecolor($w, $h);
         \imagealphablending($image, false);
         \imagesavealpha($image, true);
+        // Start fully transparent so transparent pixels need no write.
+        \imagefilledrectangle($image, 0, 0, $w - 1, $h - 1, 0x7F000000);
 
-        // A truecolor GD pixel is its own colour value: alpha 0..127 in the top
-        // byte, so no palette allocation is needed.
-        $alpha = [];
-        for ($i = 0; $i < 256; $i++) {
-            $alpha[$i] = (int) round((255 - $i) * 127 / 255) << 24;
-        }
         $px = $surface->clonePixels();
         $i = 0;
         for ($y = 0; $y < $h; $y++) {
             for ($x = 0; $x < $w; $x++) {
                 $p = $px[$i++];
-                \imagesetpixel($image, $x, $y, $alpha[$p >> 24 & 0xFF] | ($p & 0xFFFFFF));
+                if ($p !== 0x7F000000) {
+                    \imagesetpixel($image, $x, $y, $p);
+                }
             }
         }
         return $image;

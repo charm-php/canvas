@@ -235,7 +235,13 @@ class Canvas
         $on = '';
         $rgb = '';
         $bg = $background === null ? null : ColorParser::parseNormalized($background);
-        $rows = $this->surface->toRgbaString();
+        // Rows of big-endian GD truecolor ints (alpha 0 opaque .. 127 transparent).
+        $all = $this->surface->clonePixels();
+        $rows = '';
+        for ($y = 0; $y < $sh; $y++) {
+            $rows .= \pack('N*', ...\array_slice($all, $y * $sw, $sw));
+        }
+        unset($all);
         $stride = $sw * 4;
         $memo = [];
         $xRange = [];
@@ -259,26 +265,29 @@ class Canvas
                     $rgb .= $memo[$key][1];
                     continue;
                 }
-                // [1..] = R,G,B,A of each pixel of the block, row after row
-                $px = \unpack('C*', $key, 1);
+                // [1..] = GD truecolor int of each pixel of the block, row after row
+                $px = \unpack('N*', $key, 1);
 
                 $r = $g = $b = 0.0;
                 $weight = 0.0;
-                for ($i = 1, $end = \count($px) + 1; $i < $end; $i += 4) {
+                foreach ($px as $p) {
+                    $pr = ($p >> 16) & 0xFF;
+                    $pg = ($p >> 8) & 0xFF;
+                    $pb = $p & 0xFF;
                     if ($bg === null) {
-                        if ($px[$i + 3] === 0) {
+                        if ($p >= 0x7F000000) {
                             continue;
                         }
-                        $a = $px[$i + 3] / 255;
+                        $a = (127 - ($p >> 24)) / 127;
                     } else {
-                        $a = (min(abs($px[$i] / 255 - $bg[0]), 1.0) + min(abs($px[$i + 1] / 255 - $bg[1]), 1.0) + min(abs($px[$i + 2] / 255 - $bg[2]), 1.0)) / 3.0;
+                        $a = (min(abs($pr / 255 - $bg[0]), 1.0) + min(abs($pg / 255 - $bg[1]), 1.0) + min(abs($pb / 255 - $bg[2]), 1.0)) / 3.0;
                         if ($a <= 0.0) {
                             continue;
                         }
                     }
-                    $r += $px[$i] / 255 * $a;
-                    $g += $px[$i + 1] / 255 * $a;
-                    $b += $px[$i + 2] / 255 * $a;
+                    $r += $pr / 255 * $a;
+                    $g += $pg / 255 * $a;
+                    $b += $pb / 255 * $a;
                     $weight += $a;
                 }
 

@@ -108,10 +108,10 @@ final class TextRaster
         $h = $mask->height;
         $r = max(1, (int) round($strokeWidth / 2));
 
+        // GD alpha 0 (opaque) .. 127: coverage is its complement.
         $coverage = [];
-        $pixels = $mask->clonePixels();
-        foreach ($pixels as $p) {
-            $coverage[] = (($p >> 24) & 0xFF);
+        foreach ($mask->clonePixels() as $p) {
+            $coverage[] = 127 - ($p >> 24);
         }
 
         // band = dilate(mask, r) - erode(mask, r): an annulus of the right
@@ -123,7 +123,7 @@ final class TextRaster
         $n = $w * $h;
         for ($i = 0; $i < $n; $i++) {
             $v = $dilated[$i] - $eroded[$i];
-            $px[] = $v > 0 ? (($v > 255 ? 255 : $v) << 24) : 0;
+            $px[] = $v > 0 ? ((127 - ($v > 127 ? 127 : $v)) << 24) | 0xFFFFFF : 0x7F000000;
         }
         $out = new Surface($w, $h);
         $out->setPixels($px);
@@ -142,7 +142,7 @@ final class TextRaster
         for ($y = 0; $y < $h; $y++) {
             $base = $y * $w;
             for ($x = 0; $x < $w; $x++) {
-                $best = $max ? 0 : 255;
+                $best = $max ? 0 : 127;
                 $from = max(0, $x - $r);
                 $to = min($w - 1, $x + $r);
                 for ($k = $from; $k <= $to; $k++) {
@@ -158,7 +158,7 @@ final class TextRaster
         $out = array_fill(0, $w * $h, 0);
         for ($x = 0; $x < $w; $x++) {
             for ($y = 0; $y < $h; $y++) {
-                $best = $max ? 0 : 255;
+                $best = $max ? 0 : 127;
                 $from = max(0, $y - $r);
                 $to = min($h - 1, $y + $r);
                 for ($k = $from; $k <= $to; $k++) {

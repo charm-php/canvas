@@ -231,7 +231,8 @@ final class CanvasTest extends TestCase
         $this->assertEqualsWithDelta(170, $srcOver[2], 3);
 
         $copy = $run('copy');
-        $this->assertSame([0, 0, 255, 128], $copy);
+        $this->assertSame([0, 0, 255], \array_slice($copy, 0, 3));
+        $this->assertEqualsWithDelta(128, $copy[3], 2, 'alpha has 7 bits of precision');
 
         // source-in keeps the source colour at the intersection of alphas.
         $srcIn = $run('source-in');
@@ -304,6 +305,51 @@ final class CanvasTest extends TestCase
         $this->assertSame([255, 0, 0, 255], $this->px($c, 14, 7), 'the tile repeats in both axes');
 
         $this->assertNull($x->createPattern($tile, 'nope'), 'an invalid repetition is rejected');
+    }
+
+    public function testGdRoundTripIsPixelIdentical(): void
+    {
+        $gd = \imagecreatetruecolor(5, 4);
+        \imagealphablending($gd, false);
+        \imagesavealpha($gd, true);
+        mt_srand(3);
+        for ($y = 0; $y < 4; $y++) {
+            for ($x = 0; $x < 5; $x++) {
+                \imagesetpixel($gd, $x, $y, (mt_rand(0, 127) << 24) | mt_rand(0, 0xFFFFFF));
+            }
+        }
+        $back = Canvas::fromGd($gd)->toGd();
+        for ($y = 0; $y < 4; $y++) {
+            for ($x = 0; $x < 5; $x++) {
+                $this->assertSame(\imagecolorat($gd, $x, $y), \imagecolorat($back, $x, $y));
+            }
+        }
+    }
+
+    public function testImageDataIsRgba8(): void
+    {
+        [$c, $x] = $this->canvas(4, 4);
+        $x->fillStyle = '#336699';
+        $x->fillRect(0, 0, 2, 4);
+        $d = $x->getImageData(0, 0, 4, 4)['data'];
+        $this->assertSame([0x33, 0x66, 0x99, 255], [\ord($d[0]), \ord($d[1]), \ord($d[2]), \ord($d[3])]);
+        $this->assertSame(0, \ord($d[3 * 4 + 3]), 'untouched pixels read back as alpha 0');
+        $x->clearRect(0, 0, 2, 4);
+        $this->assertSame(0, \ord($x->getImageData(0, 0, 1, 1)['data'][3]));
+    }
+
+    public function testTranslucentFillBlendsWithinTolerance(): void
+    {
+        [$c, $x] = $this->canvas(4, 4);
+        $x->fillStyle = '#ffffff';
+        $x->fillRect(0, 0, 4, 4);
+        $x->fillStyle = 'rgba(0, 0, 0, 0.5)';
+        $x->fillRect(0, 0, 4, 4);
+        [$r, $g, $b, $a] = $this->px($c, 1, 1);
+        $this->assertEqualsWithDelta(128, $r, 2);
+        $this->assertEqualsWithDelta(128, $g, 2);
+        $this->assertEqualsWithDelta(128, $b, 2);
+        $this->assertSame(255, $a);
     }
 
     public function testPngRoundTrip(): void
