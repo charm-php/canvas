@@ -1062,14 +1062,26 @@ final class Surface implements RendererInterface
         $out = new self($width, $height);
         $x0 = max(0, $x);
         $x1 = min($this->width, $x + $width);
+        if ($x1 <= $x0) {
+            return $out;
+        }
+        // the rows as slices, joined once: array_splice() into the result copied the whole
+        // result for every row (a screenful took a second)
+        $n = $x1 - $x0;
+        $left = $x0 - $x;
+        $right = $width - $left - $n;
+        $blank = array_fill(0, $width, self::TRANSPARENT);
+        $rows = [];
         for ($row = 0; $row < $height; $row++) {
             $sy = $y + $row;
-            if ($sy < 0 || $sy >= $this->height || $x1 <= $x0) {
+            if ($sy < 0 || $sy >= $this->height) {
+                $rows[] = $blank;
                 continue;
             }
-            $n = $x1 - $x0;
-            array_splice($out->px, $row * $width + $x0 - $x, $n, array_slice($this->px, $sy * $this->width + $x0, $n));
+            $slice = \array_slice($this->px, $sy * $this->width + $x0, $n);
+            $rows[] = $left === 0 && $right === 0 ? $slice : [...\array_slice($blank, 0, $left), ...$slice, ...\array_slice($blank, 0, $right)];
         }
+        $out->px = array_merge(...$rows);
         return $out;
     }
 
@@ -1085,13 +1097,20 @@ final class Surface implements RendererInterface
         if ($c1 <= $c0) {
             return;
         }
+        // element by element: array_splice() copied the whole pixel array for every row
+        $n = $c1 - $c0;
+        $px = &$this->px;
+        $from = &$src->px;
         for ($row = 0; $row < $src->height; $row++) {
             $ty = $dy + $row;
             if ($ty < 0 || $ty >= $this->height) {
                 continue;
             }
-            $n = $c1 - $c0;
-            array_splice($this->px, $ty * $this->width + $dx + $c0, $n, array_slice($src->px, $row * $src->width + $c0, $n));
+            $t = $ty * $this->width + $dx + $c0;
+            $s = $row * $src->width + $c0;
+            for ($i = 0; $i < $n; $i++) {
+                $px[$t + $i] = $from[$s + $i];
+            }
         }
     }
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.5]
+### Fixed
+- `getImageData()` and `putImageData()` took about a second each on a 400x440
+  canvas: `Surface::readRect()` and `writeSurface()` used `array_splice()` on
+  the whole pixel array for every row. Now 16 and 17 ms (the RGBA conversion);
+  `putImageData()` with a `Surface` from `readRect()` (no conversion) 8 and 4 ms.
+  A program that keeps a still layer and puts it back each frame can use these
+  instead of reaching into the renderer; `Context::surface()` is public too.
+
 ## [0.2.4]
 ### Changed
 - `toDots()`: a dot is on when at least half of its block is covered, not when

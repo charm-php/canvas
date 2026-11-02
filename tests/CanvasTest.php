@@ -4,6 +4,7 @@ namespace phasync\Canvas\Tests;
 
 use phasync\Canvas\Canvas;
 use phasync\Canvas\Context;
+use phasync\Canvas\Surface;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -517,5 +518,40 @@ final class CanvasTest extends TestCase
         $c2->fillStyle = 'rgba(0,0,255,0.25)';
         $c2->fillRect(5, 0, 3, 4);
         $this->assertSame($d['on'], $big->toDots(8, 4)['on']);
+    }
+
+    public function testReadRectAndWriteSurfaceCopyRowsAtArraySpeed(): void
+    {
+        // (both used array_splice() on the whole pixel array per row: a 400x440 screenful took a second)
+        $c = new Canvas(400, 440);
+        $s = $c->surface();
+        $x = new Context($s);
+        $x->fillStyle = '#4f86ff';
+        $x->fillRect(10, 10, 300, 300);
+        $t = microtime(true);
+        $rect = $s->readRect(0, 0, 400, 440);
+        $read = microtime(true) - $t;
+        $this->assertSame($s->clonePixels(), $rect->clonePixels());
+        $x->fillRect(0, 0, 400, 440);
+        $t = microtime(true);
+        $x->putImageData($rect, 0, 0);
+        $write = microtime(true) - $t;
+        $this->assertSame($rect->clonePixels(), $s->clonePixels());
+        $this->assertLessThan(0.15, $read, "readRect took {$read}s");
+        $this->assertLessThan(0.15, $write, "writeSurface took {$write}s");
+        // a rectangle partly outside: what is outside is transparent, the rest in place
+        $part = $s->readRect(-2, -1, 5, 3);
+        $this->assertSame(5, $part->width);
+        $this->assertSame($s->getPixel(0, 0), $part->getPixel(2, 1));
+        $this->assertSame($s->getPixel(2, 1), $part->getPixel(4, 2));
+        $blank = (new Surface(1, 1))->getPixel(0, 0);
+        $this->assertSame($blank, $part->getPixel(0, 0));
+        $this->assertSame($blank, $part->getPixel(4, 0));
+        $x->fillStyle = '#ff0000';
+        $x->fillRect(0, 0, 400, 440);
+        $s->writeSurface($part, 398, 439);
+        $this->assertSame($part->getPixel(0, 0), $s->getPixel(398, 439));
+        $this->assertSame($part->getPixel(1, 0), $s->getPixel(399, 439));
+        $this->assertSame($s->getPixel(0, 0), $s->getPixel(0, 0));
     }
 }
