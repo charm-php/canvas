@@ -510,19 +510,19 @@ final class Surface
         if ($x0 === $x1) {
             // One pixel: edit the row in place instead of copying it.
             $o = $x0 * 4;
-            $d3 = $this->rows[$y][$o + 3];
-            if ($sa >= 1.0 || $d3 === "\0") {
-                $this->rows[$y][$o] = $rgb[0];
-                $this->rows[$y][$o + 1] = $rgb[1];
-                $this->rows[$y][$o + 2] = $rgb[2];
-                $this->rows[$y][$o + 3] = $sa >= 1.0 ? "\xFF" : \chr((int) round($sa * 255));
+            $r = &$this->rows[$y];
+            if ($sa >= 1.0 || $r[$o + 3] === "\0") {
+                $r[$o] = $rgb[0];
+                $r[$o + 1] = $rgb[1];
+                $r[$o + 2] = $rgb[2];
+                $r[$o + 3] = $sa >= 1.0 ? "\xFF" : \chr((int) round($sa * 255));
                 return;
             }
-            $out = self::overPixel(substr($this->rows[$y], $o, 4), $sr, $sg, $sb, $sa);
-            $this->rows[$y][$o] = $out[0];
-            $this->rows[$y][$o + 1] = $out[1];
-            $this->rows[$y][$o + 2] = $out[2];
-            $this->rows[$y][$o + 3] = $out[3];
+            $out = self::overPixel(substr($r, $o, 4), $sr, $sg, $sb, $sa);
+            $r[$o] = $out[0];
+            $r[$o + 1] = $out[1];
+            $r[$o + 2] = $out[2];
+            $r[$o + 3] = $out[3];
             return;
         }
         $row = $this->rows[$y];

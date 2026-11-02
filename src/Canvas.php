@@ -242,7 +242,6 @@ class Canvas
         for ($ty = 0; $ty < $h; $ty++) {
             $y0 = (int) floor($ty * $sh / $h);
             $y1 = min($sh, max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h)));
-            $lines = [];
             for ($tx = 0; $tx < $w; $tx++) {
                 $x0 = (int) floor($tx * $sw / $w);
                 $x1 = min($sw, max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w)));
@@ -257,32 +256,27 @@ class Canvas
                     $rgb .= $memo[$key][1];
                     continue;
                 }
-                if ($lines === []) {
-                    for ($y = $y0; $y < $y1; $y++) {
-                        $lines[$y] = \unpack('C*', \substr($rows, $y * $stride, $stride));
-                    }
-                }
+                // [1..] = R,G,B,A of each pixel of the block, row after row
+                $px = \unpack('C*', $key, 1);
 
                 $r = $g = $b = 0.0;
                 $weight = 0.0;
-                foreach ($lines as $px) {
-                    for ($i = $x0 * 4 + 1, $end = $x1 * 4 + 1; $i < $end; $i += 4) {
-                        if ($bg === null) {
-                            if ($px[$i + 3] === 0) {
-                                continue;
-                            }
-                            $a = $px[$i + 3] / 255;
-                        } else {
-                            $a = (min(abs($px[$i] / 255 - $bg[0]), 1.0) + min(abs($px[$i + 1] / 255 - $bg[1]), 1.0) + min(abs($px[$i + 2] / 255 - $bg[2]), 1.0)) / 3.0;
-                            if ($a <= 0.0) {
-                                continue;
-                            }
+                for ($i = 1, $end = \count($px) + 1; $i < $end; $i += 4) {
+                    if ($bg === null) {
+                        if ($px[$i + 3] === 0) {
+                            continue;
                         }
-                        $r += $px[$i] / 255 * $a;
-                        $g += $px[$i + 1] / 255 * $a;
-                        $b += $px[$i + 2] / 255 * $a;
-                        $weight += $a;
+                        $a = $px[$i + 3] / 255;
+                    } else {
+                        $a = (min(abs($px[$i] / 255 - $bg[0]), 1.0) + min(abs($px[$i + 1] / 255 - $bg[1]), 1.0) + min(abs($px[$i + 2] / 255 - $bg[2]), 1.0)) / 3.0;
+                        if ($a <= 0.0) {
+                            continue;
+                        }
                     }
+                    $r += $px[$i] / 255 * $a;
+                    $g += $px[$i + 1] / 255 * $a;
+                    $b += $px[$i + 2] / 255 * $a;
+                    $weight += $a;
                 }
 
                 if ($weight <= 0.0) {
