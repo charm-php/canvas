@@ -14,6 +14,10 @@
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
+if (($r = getenv('CANVAS_RENDERER')) !== false && $r !== '') {
+    \phasync\Canvas\Canvas::$renderer = $r;
+}
+
 use phasync\Canvas\Conformance\Runner;
 
 $argvv = array_slice($argv, 1);
@@ -38,12 +42,14 @@ for ($i = 0; $i < count($argvv); $i++) {
         $showMaps = (int) ($argvv[++$i] ?? 5);
     } elseif ($a === '--dump') {
         $dump = $argvv[++$i] ?? null;
+    } elseif (str_starts_with($a, '--renderer=')) {
+        \phasync\Canvas\Canvas::$renderer = substr($a, 11);
     } elseif ($a === '--list') {
         $list = true;
     } elseif ($a === '--all') {
         $showAll = true;
     } elseif ($a === '--help' || $a === '-h') {
-        echo "usage: bin/conformance [--filter GLOB] [--tag TAG] [--verbose] [--maps N] [--list] [--all]\n";
+        echo "usage: bin/conformance [--renderer=php|imagick] [--filter GLOB] [--tag TAG] [--verbose] [--maps N] [--list] [--all]\n";
         exit(0);
     }
 }

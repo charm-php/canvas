@@ -10,6 +10,19 @@ use phasync\Canvas\Canvas;
  */
 final class Runner
 {
+    /**
+     * Divergences that exist only with the Imagick renderer, each an engine
+     * difference that supersampling and calibration do not remove.
+     */
+    private const IMAGICK_KNOWN = [
+        'gco/color-dodge' => 'ImageMagick 6 color-dodge is not the W3C formula: where the backdrop channel is 0 and the source channel is 1 it returns 1, the specification and Chrome return 0',
+        'gco/color-dodge/alpha' => 'as gco/color-dodge: ImageMagick 6 color-dodge differs from the W3C formula for a zero backdrop channel',
+        'path/rect-in-path-stroke' => 'ImageMagick 6 polygon antialiasing is a distance ramp whose error depends on edge direction (a half-covered 1px row reads 109 or 135, Chrome 128); supersampling cancels only its mean bias',
+        'roundrect/stroke' => 'as path/rect-in-path-stroke: direction-dependent ramp error on a 1px stroke',
+        'clip/triangle' => 'as path/rect-in-path-stroke: the residual ramp error shows on a diagonal clip edge (max 12 of 255 per edge pixel)',
+        'clip/evenodd-donut' => 'as path/rect-in-path-stroke: the residual ramp error shows on curved clip edges',
+    ];
+
     /** @var array<int,array{w:int,h:int,ops:array}> */
     private array $phpPrograms = [];
 
@@ -51,7 +64,7 @@ final class Runner
             }
 
             $m = Metrics::compare($mine['rgba'], $theirs['rgba'], $case['w'], $case['h'], $case['tier']);
-            $note = $case['known'] ?? null;
+            $note = $case['known'] ?? (Canvas::rendererName() === 'imagick' ? (self::IMAGICK_KNOWN[$id] ?? null) : null);
             $status = $m['pass'] ? 'pass' : 'fail';
             if ($note !== null) {
                 if ($m['pass']) {

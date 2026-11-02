@@ -18,6 +18,9 @@ if (in_array('--jit', $argv, true) && !getenv('BENCH_JIT')) {
     exit($code);
 }
 require dirname(__DIR__) . '/vendor/autoload.php';
+if (($r = getenv('CANVAS_RENDERER')) !== false && $r !== '') {
+    \phasync\Canvas\Canvas::$renderer = $r;
+}
 require __DIR__ . '/' . $name . '-frame.php';
 $ns = 'phasync\\Canvas\\Bench\\' . $names[$name];
 if (in_array('--hash', $argv, true)) {
@@ -25,4 +28,4 @@ if (in_array('--hash', $argv, true)) {
     exit(0);
 }
 $ms = ($ns . 'run')(10, 10);
-printf("%s %s: %.1f ms/frame\n", $name, getenv('BENCH_JIT') ? 'jit' : 'interp', $ms);
+printf("%s %s %s: %.1f ms/frame\n", $name, \phasync\Canvas\Canvas::rendererName(), getenv('BENCH_JIT') ? 'jit' : 'interp', $ms);
