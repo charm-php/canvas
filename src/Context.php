@@ -46,13 +46,13 @@ class Context
     /** @var list<int> clip depth at each saved state */
     private array $clipDepths = [];
 
-    public function __construct(private Surface $surface)
+    public function __construct(private RendererInterface $surface)
     {
         $this->ctm = Matrix::identity();
         $this->path = new Path();
     }
 
-    public function surface(): Surface
+    public function surface(): RendererInterface
     {
         return $this->surface;
     }
@@ -600,7 +600,7 @@ class Context
         if ($surface === null || $surface->width <= 0 || $surface->height <= 0) {
             return null;
         }
-        return new Pattern($surface, $repetition);
+        return new Pattern(Surface::of($surface), $repetition);
     }
 
     // -----------------------------------------------------------------
@@ -750,9 +750,9 @@ class Context
      *
      * @param array{width:int,height:int,data:string}|Surface $imageData
      */
-    public function putImageData(array|Surface $imageData, float $dx, float $dy, float $cx = 0.0, float $cy = 0.0, ?float $cw = null, ?float $ch = null): void
+    public function putImageData(array|RendererInterface $imageData, float $dx, float $dy, float $cx = 0.0, float $cy = 0.0, ?float $cw = null, ?float $ch = null): void
     {
-        $src = $imageData instanceof Surface
+        $src = $imageData instanceof RendererInterface
             ? $imageData
             : Surface::fromRgbaString((int) ($imageData['width'] ?? 0), (int) ($imageData['height'] ?? 0), (string) ($imageData['data'] ?? ''));
         if ($src->width <= 0 || $src->height <= 0) {
@@ -979,9 +979,9 @@ class Context
      * Accept every image source the browser API would: a Canvas, a Surface, a
      * GD image, an Imagick instance, a file path or encoded bytes.
      */
-    public static function toSurface(mixed $image): ?Surface
+    public static function toSurface(mixed $image): ?RendererInterface
     {
-        if ($image instanceof Surface) {
+        if ($image instanceof RendererInterface) {
             return $image;
         }
         if ($image instanceof Canvas) {

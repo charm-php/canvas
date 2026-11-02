@@ -2,6 +2,7 @@
 
 namespace phasync\Canvas\Codec;
 
+use phasync\Canvas\RendererInterface;
 use phasync\Canvas\Surface;
 
 /**
@@ -21,15 +22,15 @@ interface CodecInterface
     /** Decode image bytes (PNG, JPEG, GIF, WebP, BMP, ...). */
     public function decode(string $bytes): ?Surface;
 
-    public function encodePng(Surface $surface): string;
+    public function encodePng(RendererInterface $surface): string;
 
-    public function encodeJpeg(Surface $surface, int $quality): string;
+    public function encodeJpeg(RendererInterface $surface, int $quality): string;
 
     public function fromGdImage(\GdImage $image): Surface;
 
-    public function toGdImage(Surface $surface): \GdImage;
+    public function toGdImage(RendererInterface $surface): \GdImage;
 
     public function fromImagick(\Imagick $imagick): Surface;
 
-    public function toImagick(Surface $surface): \Imagick;
+    public function toImagick(RendererInterface $surface): \Imagick;
 }

@@ -10,7 +10,7 @@ namespace phasync\Canvas;
  * codec (PNG/JPEG/GD/Imagick) or, one day, an accelerated implementation of
  * the same surface contract.
  */
-final class Surface
+final class Surface implements RendererInterface
 {
     /**
      * Straight (non-premultiplied) GD truecolor, one int per pixel, row after
@@ -709,6 +709,12 @@ final class Surface
         return $out;
     }
 
+    /** This renderer's pixels as a Surface (itself, or a converted copy). */
+    public static function of(RendererInterface $r): self
+    {
+        return $r instanceof self ? $r : self::fromRgbaString($r->width, $r->height, $r->toRgbaString());
+    }
+
     public static function fromRgbaString(int $width, int $height, string $rgba): self
     {
         $s = new self($width, $height);
@@ -737,7 +743,7 @@ final class Surface
      * bilinear (premultiplied) with it on.
      */
     public function blitAffine(
-        Surface $src,
+        RendererInterface $src,
         Matrix $m,
         float $alpha,
         bool $smooth,
@@ -749,6 +755,7 @@ final class Surface
         if ($inv === null || $alpha <= 0.0) {
             return;
         }
+        $src = self::of($src);
         $sw = $src->width;
         $sh = $src->height;
         if ($sw <= 0 || $sh <= 0) {
@@ -1070,8 +1077,9 @@ final class Surface
      * Replace pixels verbatim: no blending, no alpha, no clip, no CTM, as
      * required of putImageData().
      */
-    public function writeSurface(Surface $src, int $dx, int $dy): void
+    public function writeSurface(RendererInterface $src, int $dx, int $dy): void
     {
+        $src = self::of($src);
         $c0 = max(0, -$dx);
         $c1 = min($src->width, $this->width - $dx);
         if ($c1 <= $c0) {

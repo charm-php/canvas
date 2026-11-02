@@ -3,6 +3,7 @@
 namespace phasync\Canvas\Codec;
 
 use phasync\Canvas\NotSupportedException;
+use phasync\Canvas\RendererInterface;
 use phasync\Canvas\Surface;
 
 /**
@@ -60,7 +61,7 @@ final class GdCodec implements CodecInterface
         return $surface;
     }
 
-    public function toGdImage(Surface $surface): \GdImage
+    public function toGdImage(RendererInterface $surface): \GdImage
     {
         $w = $surface->width;
         $h = $surface->height;
@@ -83,7 +84,7 @@ final class GdCodec implements CodecInterface
         return $image;
     }
 
-    public function encodePng(Surface $surface): string
+    public function encodePng(RendererInterface $surface): string
     {
         $image = $this->toGdImage($surface);
         \ob_start();
@@ -92,7 +93,7 @@ final class GdCodec implements CodecInterface
         return $data;
     }
 
-    public function encodeJpeg(Surface $surface, int $quality): string
+    public function encodeJpeg(RendererInterface $surface, int $quality): string
     {
         // JPEG has no alpha; browsers composite onto black.
         $image = $this->toGdImage($surface);
@@ -125,7 +126,7 @@ final class GdCodec implements CodecInterface
         return $surface;
     }
 
-    public function toImagick(Surface $surface): \Imagick
+    public function toImagick(RendererInterface $surface): \Imagick
     {
         if (!\extension_loaded('imagick')) {
             throw new NotSupportedException('The imagick extension is not loaded');

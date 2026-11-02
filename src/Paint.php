@@ -133,6 +133,34 @@ final class Paint
         return $this->constant;
     }
 
+    /**
+     * A linear gradient as a strip of $n samples (straight RGBA bytes, sample i
+     * is the colour at t = (i + .5) / n) and the device -> strip matrix, whose
+     * x is t * n. Null for anything that is not a plain linear gradient.
+     *
+     * @return array{rgba:string, toStrip:Matrix}|null
+     */
+    public function linearStrip(int $n): ?array
+    {
+        if ($this->constant || $this->radial || $this->pattern !== null || $this->deviceToUser === null
+            || $this->gradientEmpty || $this->gradientInvisible || $this->lenSq <= 0.0) {
+            return null;
+        }
+        $rgba = '';
+        for ($i = 0; $i < $n; $i++) {
+            $c = $this->sample(($i + 0.5) / $n);
+            $rgba .= \chr((int) round($c[0] * 255)) . \chr((int) round($c[1] * 255)) . \chr((int) round($c[2] * 255)) . \chr((int) round($c[3] * 255));
+        }
+        // t = ((u - p0) . d) / |d|^2 with u = deviceToUser(device)
+        $m = $this->deviceToUser;
+        $k = $n / $this->lenSq;
+        $A = $k * ($this->dx * $m->a + $this->dy * $m->b);
+        $B = $k * ($this->dx * $m->c + $this->dy * $m->d);
+        $C = $k * ($this->dx * ($m->e - $this->x0) + $this->dy * ($m->f - $this->y0));
+        // Rotate to a second axis so the map is invertible; the strip is one row high and edge-extended.
+        return ['rgba' => $rgba, 'toStrip' => new Matrix($A, -$B, $B, $A, $C, 0.0)];
+    }
+
     /** @return array{0:float,1:float,2:float,3:float} */
     public function constant(): array
     {

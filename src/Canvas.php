@@ -16,7 +16,13 @@ class Canvas
     /** @var class-string<CodecInterface>|null */
     public static ?string $codecClass = null;
 
-    private Surface $surface;
+    /**
+     * Which renderer new canvases use: 'php', 'imagick' or null for automatic
+     * (Imagick when ext-imagick is loaded, else PHP).
+     */
+    public static ?string $renderer = null;
+
+    private RendererInterface $surface;
     private CodecInterface $codec;
     private ?Context $context = null;
 
@@ -26,7 +32,31 @@ class Canvas
             throw new \InvalidArgumentException('Canvas dimensions must be positive');
         }
         $this->codec = self::makeCodec();
-        $this->surface = new Surface($width, $height);
+        $this->surface = self::newSurface($width, $height);
+    }
+
+    /** The renderer name in effect: 'php' or 'imagick'. */
+    public static function rendererName(): string
+    {
+        $name = self::$renderer ?? (\extension_loaded('imagick') ? 'imagick' : 'php');
+        if ($name !== 'php' && $name !== 'imagick') {
+            throw new \InvalidArgumentException("Unknown renderer: $name");
+        }
+        if ($name === 'imagick' && !\extension_loaded('imagick')) {
+            throw new NotSupportedException('The imagick extension is not loaded');
+        }
+        return $name;
+    }
+
+    private static function newSurface(int $width, int $height): RendererInterface
+    {
+        return self::rendererName() === 'imagick' ? new ImagickSurface($width, $height) : new Surface($width, $height);
+    }
+
+    /** Move freshly decoded pixels into the active renderer. */
+    private static function adopt(Surface $surface): RendererInterface
+    {
+        return self::rendererName() === 'imagick' ? ImagickSurface::fromRgbaString($surface->width, $surface->height, $surface->toRgbaString()) : $surface;
     }
 
     private static function makeCodec(): CodecInterface
@@ -42,7 +72,7 @@ class Canvas
     // Construction
     // -----------------------------------------------------------------
 
-    public static function fromSurface(Surface $surface): self
+    public static function fromSurface(RendererInterface $surface): self
     {
         $canvas = new self($surface->width, $surface->height);
         $canvas->surface = $surface;
@@ -56,7 +86,7 @@ class Canvas
         if ($surface === null) {
             throw new \RuntimeException('Unable to decode image data');
         }
-        return self::fromSurface($surface);
+        return self::fromSurface(self::adopt($surface));
     }
 
     public static function fromFile(string $path): self
@@ -78,12 +108,12 @@ class Canvas
 
     public static function fromGd(\GdImage $image): self
     {
-        return self::fromSurface(self::makeCodec()->fromGdImage($image));
+        return self::fromSurface(self::adopt(self::makeCodec()->fromGdImage($image)));
     }
 
     public static function fromImagick(\Imagick $imagick): self
     {
-        return self::fromSurface(self::makeCodec()->fromImagick($imagick));
+        return self::fromSurface(self::adopt(self::makeCodec()->fromImagick($imagick)));
     }
 
     // -----------------------------------------------------------------
@@ -134,7 +164,7 @@ class Canvas
         if ($width <= 0 || $height <= 0) {
             return; // browsers ignore non-positive sizes
         }
-        $this->surface = new Surface($width, $height);
+        $this->surface = self::newSurface($width, $height);
         $this->context = null;
     }
 
@@ -148,7 +178,7 @@ class Canvas
         return $this->surface->height;
     }
 
-    public function surface(): Surface
+    public function surface(): RendererInterface
     {
         return $this->surface;
     }
@@ -171,12 +201,12 @@ class Canvas
 
     public function toPng(): string
     {
-        return $this->codec->encodePng($this->surface);
+        return $this->surface instanceof ImagickSurface ? $this->surface->toPng() : $this->codec->encodePng($this->surface);
     }
 
     public function toJpeg(int $quality = 90): string
     {
-        return $this->codec->encodeJpeg($this->surface, $quality);
+        return $this->surface instanceof ImagickSurface ? $this->surface->toJpeg($quality) : $this->codec->encodeJpeg($this->surface, $quality);
     }
 
     /** toDataURL('image/png'|'image/jpeg', quality) */
@@ -194,12 +224,12 @@ class Canvas
 
     public function toGd(): \GdImage
     {
-        return $this->codec->toGdImage($this->surface);
+        return $this->surface instanceof ImagickSurface ? $this->surface->toGd() : $this->codec->toGdImage($this->surface);
     }
 
     public function toImagick(): \Imagick
     {
-        return $this->codec->toImagick($this->surface);
+        return $this->surface instanceof ImagickSurface ? $this->surface->toImagick() : $this->codec->toImagick($this->surface);
     }
 
     /**
