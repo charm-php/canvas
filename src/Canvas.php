@@ -235,28 +235,41 @@ class Canvas
         $on = '';
         $rgb = '';
         $bg = $background === null ? null : ColorParser::parseNormalized($background);
+        $rows = $this->surface->toRgbaString();
+        $stride = $sw * 4;
+        $rowCache = [];
 
         for ($ty = 0; $ty < $h; $ty++) {
             $y0 = (int) floor($ty * $sh / $h);
-            $y1 = max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h));
+            $y1 = min($sh, max($y0 + 1, (int) ceil(($ty + 1) * $sh / $h)));
+            // Bytes of each source row in this dot row, as [R,G,B,A,R,...] from index 1.
+            $lines = [];
+            for ($y = $y0; $y < $y1; $y++) {
+                $lines[$y] = $rowCache[$y] ??= \unpack('C*', \substr($rows, $y * $stride, $stride));
+            }
+            unset($rowCache[$y0 - 1]);
             for ($tx = 0; $tx < $w; $tx++) {
                 $x0 = (int) floor($tx * $sw / $w);
-                $x1 = max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w));
+                $x1 = min($sw, max($x0 + 1, (int) ceil(($tx + 1) * $sw / $w)));
 
                 $r = $g = $b = 0.0;
                 $weight = 0.0;
-                for ($y = $y0; $y < min($sh, $y1); $y++) {
-                    for ($x = $x0; $x < min($sw, $x1); $x++) {
-                        $p = $this->surface->getPixel($x, $y);
-                        $a = $bg === null
-                            ? $p[3]
-                            : (min(abs($p[0] - $bg[0]), 1.0) + min(abs($p[1] - $bg[1]), 1.0) + min(abs($p[2] - $bg[2]), 1.0)) / 3.0;
-                        if ($a <= 0.0) {
-                            continue;
+                foreach ($lines as $px) {
+                    for ($i = $x0 * 4 + 1, $end = $x1 * 4 + 1; $i < $end; $i += 4) {
+                        if ($bg === null) {
+                            if ($px[$i + 3] === 0) {
+                                continue;
+                            }
+                            $a = $px[$i + 3] / 255;
+                        } else {
+                            $a = (min(abs($px[$i] / 255 - $bg[0]), 1.0) + min(abs($px[$i + 1] / 255 - $bg[1]), 1.0) + min(abs($px[$i + 2] / 255 - $bg[2]), 1.0)) / 3.0;
+                            if ($a <= 0.0) {
+                                continue;
+                            }
                         }
-                        $r += $p[0] * $a;
-                        $g += $p[1] * $a;
-                        $b += $p[2] * $a;
+                        $r += $px[$i] / 255 * $a;
+                        $g += $px[$i + 1] / 255 * $a;
+                        $b += $px[$i + 2] / 255 * $a;
                         $weight += $a;
                     }
                 }
