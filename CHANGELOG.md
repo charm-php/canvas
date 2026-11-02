@@ -1,21 +1,37 @@
 # Changelog
 
 ## [0.2.1]
-Rendering is about 7 times faster with the same output: a 416x320 graph frame
-(`php benchmarks/graph-frame.php .`) went from 220 ms to 31 ms, and `toDots`
-on it from 52 ms to 9 ms. `bin/conformance` still agrees with Chrome on 335 of
-336 cases, with the same documented divergence.
+Rendering is much faster with the same output. A 416x320 graph frame
+(`php benchmarks/graph-frame.php .`) went from 220 ms to 28.5 ms, and a 640x480
+mixed frame (`php benchmarks/mixed-frame.php .`: gradient fill, translucent
+ellipse, clip, a photo drawn scaled and rotated, text) from 1412 ms to 490 ms.
+`bin/conformance` still agrees with Chrome on 335 of 336 cases, with the same
+documented divergence and no case's per-pixel agreement lower.
 
 ### Changed
-- Pixels are kept as RGBA8 row strings, so `toPixels`, `getImageData`,
-  `putImageData` and PNG encoding no longer convert pixel by pixel
+- Pixels are one packed int per pixel (0xRRGGBBAA, so `pack('N*')` is the
+  ImageData byte order). Measured against RGBA row strings: graph-frame
+  26.5 -> 28.6 ms (strings win on bulk runs), mixed-frame 1412 -> 1222 ms (ints
+  win on per-pixel work). Costs 16 bytes per pixel instead of 4
 - Fills cost per edge rather than per covered column; opaque shapes and flat
-  runs are written a row segment at a time
+  runs are written a row segment at a time. The rasteriser orders a row's
+  edges once when they all span it, and adds a span's samples as one term when
+  its ends stay in their cell
+- Source-over, drawImage, fillRect and gradient paints no longer allocate per
+  pixel; `pushClip` skips runs where the new mask is 0 or 255; the GD codec
+  converts pixels through a lookup table without allocating colours
 - `toDots` reads pixels a row at a time and reuses identical blocks
 - A fully cleared pixel no longer keeps its old colour behind alpha 0
 
+### Tried and not kept
+- drawImage with an axis-aligned scale through GD's `imagecopyresampled`:
+  saved 23 ms of the 490 ms mixed frame, but GD's kernel differs from
+  Chrome's bilinear and 7 image cases fell below tolerance (conformance
+  328/336, image 12/18), so the PHP sampler stays
+
 ### Added
-- `benchmarks/graph-frame.php`, the frame used for the numbers above
+- `benchmarks/graph-frame.php` and `benchmarks/mixed-frame.php`, the frames
+  used for the numbers above
 - Regression tests for thin strokes under non-uniform scale, `clearRect` and
   `drawImage` under scale, and `toDots` at the canvas size and on fractional edges
 
