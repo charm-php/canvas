@@ -324,7 +324,10 @@ class Canvas
                     }
                 }
 
-                if ($weight <= 0.0) {
+                // A dot is on when at least half of its block is covered, so an
+                // antialiased edge does not spread one dot outwards; its colour is
+                // the coverage-weighted mean of the covered pixels.
+                if ($weight < ($y1 - $y0) * ($x1 - $x0) / 2) {
                     $dot = ["\0", "\0\0\0"];
                 } else {
                     $dot = ["\1", \chr((int) round($r / $weight * 255))

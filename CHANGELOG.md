@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4]
+### Changed
+- `toDots()`: a dot is on when at least half of its block is covered, not when
+  any pixel in it is. An antialiased edge no longer spreads one dot outwards, and
+  a line a quarter of a cell wide shows as one Braille dot, not two. Colours are
+  unchanged (the coverage-weighted mean of the covered pixels).
+
 ## [0.2.3]
 A second renderer on ext-imagick, opt-in with `Canvas::$renderer = 'imagick'`
 (see README, "Renderers"). The PHP renderer stays the default: on the two
