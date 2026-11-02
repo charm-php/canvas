@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.2.0] - 2026-11-02
+Reworked so that the API means what the browser's means. The renderer no longer
+asks GD to draw anything: pixels, geometry and compositing live in this package,
+and GD or Imagick only encode and decode files. Every behaviour below was
+measured against headless Chrome with `bin/conformance`, which runs 336 programs
+in both engines and compares pixels — 335 agree, and the one that does not is
+listed as a documented divergence with the reason.
+
+### Added
+- `bin/conformance`: a Chrome-referenced pixel harness. One op program, run by
+  this library and by Chrome, compared by coverage, bounding box and per-pixel
+  agreement. `--tag`, `--filter`, `--verbose`, `--maps`, `--list`, `--dump CASE`
+- Conformance cases for transforms, clipping, fill rules, paths, curves, strokes,
+  caps, joins, dashes, gradients, compositing, text, images, image data, hit tests
+- `tests/CanvasTest.php` and `tests/GeometryTest.php`: 39 tests, 215 assertions of
+  pixels, state and geometry that need no browser
+- `Codec\CodecInterface` and `Codec\GdCodec`: image decoding and encoding only
+- `Context::reset()`, `fillRule` as a property, `getTransform`, `createImageData`
+- Whole-canvas compositing for the operations whose result reaches outside the
+  drawn shape (source-in/out, destination-in/atop, copy), decided from the
+  Porter-Duff factors rather than a hand-maintained list
+
+### Changed
+- Coverage replaces masking: a pixel's value is the fraction of its area inside
+  the shape, so fractional geometry, diagonal edges and clipped curves look the
+  way a browser draws them
+- Strokes are built as outlines with real caps, joins, miters and dash phases;
+  a closed shape strokes as a ring, a zero-length segment dots
+- `clearRect` rounds to whole pixels and is limited by the clip region, which is
+  what Chrome does
+- `drawImage` honours the source rectangle, snaps a one-to-one copy to whole
+  pixels, clamps its filter at the source edge, antialiases a rotated quad, and
+  treats a negative destination size as the same rectangle rather than a mirror
+- Text metrics read the font's units per em once instead of scaling them twice,
+  and stroked text outlines the glyph
+- `getImageData` no longer inverts alpha; `toPixels` reports true alpha
+- Invalid property values are ignored instead of throwing, as in a browser, and
+  an unknown `getContext()` type returns null
+
+### Fixed
+- Subpaths no longer join to each other when filling or stroking
+- `clip()` composes with the CTM and with other clips, and pops with `restore()`
+- Gradients interpolate in premultiplied space and extend their end stops
+- `isPointInStroke` reports the inside of a stroke wider than its own path
+- Division-by-zero guards for 180-degree joins, degenerate curves and arcs
+
 ## [0.1.1] - 2026-11-01
 ### Fixed
 - `stroke()` with `lineWidth <= 1` now applies the current transform matrix to thin lines (previously drawn untransformed)

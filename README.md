@@ -1,6 +1,82 @@
 # phasync/canvas
 
-The browser's 2D canvas API for PHP, backed by GD or Imagick.
+The browser's 2D canvas API for PHP. Draw with `CanvasRenderingContext2D` calls and
+export PNG or JPEG — no browser, no headless Chrome, no native drawing library.
+
+```php
+use phasync\Canvas\Canvas;
+
+$canvas = new Canvas(400, 300);
+$ctx = $canvas->getContext('2d');
+
+$ctx->fillStyle = '#0b1220';
+$ctx->fillRect(0, 0, 400, 300);
+
+$ctx->translate(0, 300);
+$ctx->scale(1, -1);                       // the usual maths-oriented flip
+$ctx->strokeStyle = 'rgb(99, 179, 237)';
+$ctx->lineWidth = 2;
+$ctx->beginPath();
+$ctx->moveTo(0, 0);
+foreach ([[40, 60], [120, 180], [200, 90], [300, 240]] as [$x, $y]) {
+    $ctx->lineTo($x, $y);
+}
+$ctx->stroke();
+
+file_put_contents('chart.png', $canvas->toPng());
+```
+
+## What this is made of
+
+Everything that decides what a pixel looks like — the CTM, path flattening,
+scanline coverage, fills, strokes, clipping, Porter-Duff compositing, gradients,
+patterns, text placement — is implemented in this package in plain PHP.
+`ext-gd` (or `ext-imagick`) is only a **codec**: it decodes and encodes PNG and
+JPEG. No GD primitive draws anything, so a different codec, or a pure-PHP
+encoder, can be dropped in without touching the semantics.
+
+| File | Role |
+| --- | --- |
+| `Context.php` | the `CanvasRenderingContext2D` API, state and property rules |
+| `Matrix.php` | the current transformation matrix |
+| `Path.php` | path building and curve flattening |
+| `Raster.php` | polygon coverage, fill rules, point-in-path |
+| `Stroker.php` | outlines, caps, joins, miters, dashes |
+| `Surface.php` | the pixel buffer, clip masks, compositing, blits |
+| `Compositing.php` | the 26 global composite operations |
+| `Gradient.php`, `Pattern.php`, `Paint.php` | what a style paints with |
+| `Fonts.php`, `TextRaster.php` | CSS font shorthand, TTF metrics, glyph masks |
+| `Codec/GdCodec.php` | PNG/JPEG in and out, GD and Imagick handoff |
+
+## Conformance
+
+`bin/conformance` runs 336 drawing programs twice — once here, once in headless
+Google Chrome — and compares the resulting pixels:
+
+```
+$ bin/conformance
+phasync/canvas conformance  (Google Chrome 144.0.7559.109)
+──────────────────────────────────────────────────────────────────────────
+  335/336 passing (99.7%) in 0.9s   (1 documented divergence)
+```
+
+Every case is written once and executed by both engines, so the suite is a
+question about behaviour rather than about this code's structure. Where the two
+engines disagree beyond a rasteriser's reasonable difference, the case carries a
+note that says so and why — the report prints those notes instead of hiding
+them, and a case that stops diverging fails until the note is removed.
+
+```bash
+bin/conformance                 # summary
+bin/conformance --tag clip      # one area
+bin/conformance -f 'stroke/*'   # filter by case id
+bin/conformance -v              # a text map per failure
+bin/conformance --dump arc/circle-stroke   # both renders plus a diff list
+```
+
+Chrome writes its pixels to a cache (`CONFORMANCE_NOCACHE=0` to ignore it), and
+the comparison uses tiers — `strict`, `normal`, `thin`, `aa-edge`, `text` — the
+looser ones existing only where a measurement is written next to them.
 
 ## Installation
 
@@ -8,122 +84,89 @@ The browser's 2D canvas API for PHP, backed by GD or Imagick.
 composer require phasync/canvas
 ```
 
-Requires PHP 8.2+ and the `gd` extension. The `imagick` extension is optional for input (fromImagick), but requires `gd` for rendering.
-
-## Quick Example
-
-```php
-<?php
-use phasync\Canvas\Canvas;
-
-// Create a 400x300 canvas
-$canvas = new Canvas(400, 300);
-$ctx = $canvas->getContext();
-
-// Set up styles
-$ctx->fillStyle = '#ffffff';
-$ctx->fillRect(0, 0, 400, 300);
-
-// Draw a chart-like shape
-$ctx->fillStyle = 'rgb(255, 99, 71)';
-$ctx->beginPath();
-$ctx->moveTo(50, 200);
-$ctx->lineTo(150, 100);
-$ctx->lineTo(250, 150);
-$ctx->lineTo(350, 50);
-$ctx->stroke();
-
-// Save as PNG
-file_put_contents('chart.png', $canvas->toPng());
-```
+PHP 8.2+ with `ext-gd`. With `ext-imagick` installed it is used for decoding and
+for `toImagick()`/`fromImagick()`.
 
 ## API
 
 ### Canvas
 
-- `new Canvas(int $width, int $height)` — Create a new canvas
-- `Canvas::fromGd(GdImage $image)` — Create from a GD image
-- `Canvas::fromImagick(Imagick $imagick)` — Create from an Imagick image
-- `Canvas::fromFile(string $path)` — Load from file (PNG, JPEG, GIF, WebP)
-- `Canvas::fromPng(string $bytes)` — Create from PNG bytes
+- `new Canvas(int $width, int $height)`
+- `Canvas::fromSurface(Surface $s): Canvas`
+- `Canvas::fromBytes(string $bytes): Canvas` — PNG, JPEG, GIF, WebP by content
+- `Canvas::fromFile(string $path): Canvas`
+- `Canvas::fromPng(string $bytes): Canvas`
+- `Canvas::fromGd(\GdImage $image): Canvas`
+- `Canvas::fromImagick(\Imagick $imagick): Canvas`
+- `getContext(?string $type = '2d'): ?Context` — `null` for anything but `2d`
+- `getWidth()`, `getHeight()`, `$width`, `$height` — setting either clears the canvas
+- `reset(): void` — clear and hand out a fresh context
+- `copy(): Canvas`, `resize(int $w, int $h): Canvas`
+- `toPng()`, `toJpeg(int $quality = 90)`, `toDataURL(string $mime = 'image/png')`
+- `toGd(): \GdImage`, `toImagick(): \Imagick`
+- `toPixels(): array{width:int, height:int, rgba:string}`
+- `toDots(int $w, int $h, ?string $background = null)` — for terminals
 
-Output methods:
-- `toPng(): string` — Export as PNG
-- `toJpeg(int $quality = 90): string` — Export as JPEG
-- `toGd(): GdImage` — Get underlying GD image
-- `toImagick(): Imagick` — Get underlying Imagick image (if available)
-- `toPixels(): array{width:int, height:int, rgba:string}` — Get raw RGBA pixel data
-- `toDots(int $w, int $h): array{width:int, height:int, on:string, rgb:string}` — Downscale for terminal rendering
-- `resize(int $w, int $h): Canvas` — Create resized copy
+### Context properties
 
-### Context
+`fillStyle`, `strokeStyle`, `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`,
+`fillRule`, `globalAlpha`, `globalCompositeOperation`, `font`, `textAlign`,
+`textBaseline`, `direction`, `lineDashOffset`, `imageSmoothingEnabled`,
+`imageSmoothingQuality`, `filter`, `shadowBlur`, `shadowColor`,
+`shadowOffsetX`, `shadowOffsetY`, `canvas`.
 
-Properties:
-- `fillStyle` — Fill color (CSS color string)
-- `strokeStyle` — Stroke color
-- `lineWidth` — Line width in pixels
-- `lineCap` — Line cap style: `'butt'`, `'round'`, `'square'`
-- `lineJoin` — Line join style: `'bevel'`, `'round'`, `'miter'`
-- `globalAlpha` — Global opacity (0-1)
-- `font` — Font specification (e.g., "16px sans-serif" or "16px /path/to/font.ttf")
-- `textAlign` — Text alignment: `'start'`, `'center'`, `'end'`
-- `textBaseline` — Text baseline: `'top'`, `'hanging'`, `'middle'`, `'alphabetic'`, `'ideographic'`, `'bottom'`
+Assignment follows the browser rules: a value that a browser would reject is
+ignored and leaves the previous value in place, so `$ctx->fillStyle = 'red-dish'`
+is a no-op rather than an error.
 
-Path methods:
-- `beginPath()` — Start a new path
-- `closePath()` — Close the current path
-- `moveTo(float $x, float $y)` — Move pen without drawing
-- `lineTo(float $x, float $y)` — Draw line to point
-- `arc(float $x, float $y, float $radius, float $startAngle, float $endAngle, bool $counterclockwise = false)` — Draw arc
-- `arcTo(float $x1, float $y1, float $x2, float $y2, float $radius)` — Draw arc to point
-- `ellipse(float $x, float $y, float $radiusX, float $radiusY, float $rotation, float $startAngle, float $endAngle, bool $counterclockwise = false)` — Draw ellipse
-- `bezierCurveTo(float $cp1x, float $cp1y, float $cp2x, float $cp2y, float $x, float $y)` — Cubic Bézier curve
-- `quadraticCurveTo(float $cpx, float $cpy, float $x, float $y)` — Quadratic Bézier curve
-- `rect(float $x, float $y, float $w, float $h)` — Add rectangle path
-- `roundRect(float $x, float $y, float $w, float $h, float|array $radii)` — Add rounded rectangle
+### Context methods
 
-Drawing methods:
-- `fill()` — Fill the current path
-- `stroke()` — Stroke the current path
-- `fillRect(float $x, float $y, float $w, float $h)` — Fill a rectangle
-- `strokeRect(float $x, float $y, float $w, float $h)` — Stroke a rectangle
-- `clearRect(float $x, float $y, float $w, float $h)` — Clear a rectangle
-- `fillText(string $text, float $x, float $y, ?float $maxWidth = null)` — Draw filled text
-- `strokeText(string $text, float $x, float $y, ?float $maxWidth = null)` — Draw stroked text
-- `measureText(string $text): array{width: float}` — Measure text width
+Paths: `beginPath`, `closePath`, `moveTo`, `lineTo`, `rect`, `roundRect`, `arc`,
+`arcTo`, `ellipse`, `bezierCurveTo`, `quadraticCurveTo`.
 
-Image methods:
-- `drawImage(Canvas|GdImage|Imagick|string $source, ...)` — Draw an image (3/5/9 args)
-- `getImageData(float $x, float $y, float $w, float $h): array{width:int, height:int, data:string}` — Get RGBA data
-- `putImageData(array $imageData, float $x, float $y)` — Put RGBA data
+Painting: `fill`, `stroke`, `fillRect`, `strokeRect`, `clearRect`, `clip`.
 
-Transform methods:
-- `save()` — Save context state
-- `restore()` — Restore context state
-- `translate(float $x, float $y)` — Translate origin
-- `scale(float $x, float $y)` — Scale
-- `rotate(float $angle)` — Rotate (in radians)
-- `transform(float $a, float $b, float $c, float $d, float $e, float $f)` — Apply transformation matrix
-- `setTransform(float $a, float $b, float $c, float $d, float $e, float $f)` — Set transformation matrix
-- `resetTransform()` — Reset to identity transform
+Text: `fillText`, `strokeText`, `measureText`.
 
-Gradient methods:
-- `createLinearGradient(float $x0, float $y0, float $x1, float $y1)` — Create linear gradient
-- `createRadialGradient(float $x0, float $y0, float $r0, float $x1, float $y1, float $r1)` — Create radial gradient
-- Gradient objects have `addColorStop(float $offset, string $color)` method
+Images: `drawImage` (3, 5 and 9 arguments), `getImageData`, `putImageData`,
+`createImageData`.
 
-Clipping:
-- `clip()` — Clip to current path
+Transforms and state: `save`, `restore`, `reset`, `translate`, `scale`, `rotate`,
+`transform`, `setTransform`, `resetTransform`, `getTransform`.
 
-## Differences from the Browser Canvas
+Queries: `isPointInPath`, `isPointInStroke`, `setLineDash`, `getLineDash`.
 
-- **Even-odd fill rule not supported** — Uses non-zero winding rule only
-- **Curves are flattened** — Curves are converted to polylines before rasterization
-- **Clipping cost** — `clip()` uses a temporary layer, so it's more expensive than in browsers
-- **LineWidth > 1** — Thick lines are drawn as filled polygons; joins use GD's built-in behavior
-- **Gradient fill with clipping** — Gradients are rasterized into a temporary image and composited
-- **No canvas filter effects** — Blur, shadow, etc. not supported
-- **Font support limited** — Built-in fonts or TTF files via `ext-gd`; system fonts via file path
+Styles: `createLinearGradient`, `createRadialGradient`, `createPattern`
+(gradients and patterns take `addColorStop(offset, color)` and are accepted by
+`fillStyle` and `strokeStyle`).
+
+## Differences from the browser
+
+- **Shadows and `filter` are accepted and stored but not rendered.** The state
+  survives `save()`/`restore()`; nothing reads it yet.
+- **Text is set by your FreeType, not by Skia.** Glyph outlines come from the
+  same TTF a browser would use, but hinting and stem weight differ by up to
+  around a fifth, so text is compared on placement and extent rather than
+  per-pixel.
+- **Thin diagonal strokes carry more ink than Chrome does.** This library
+  integrates the area a stroke covers; Chrome samples an edge on a grid, which
+  under-reads narrow diagonals by about a quarter at 1px. At 2px and above the
+  two agree.
+- **`clearRect` rounds to whole pixels and is limited by the clip region**, and
+  **`drawImage` with a negative destination size names the mirrored rectangle
+  without mirroring the bitmap**. Both are measured behaviour of Chrome; the
+  spec text is worded differently.
+- **Curves are flattened** before rasterising, at a tolerance derived from the
+  transform, so a curve under a 1000x zoom is sampled more finely.
+- **One canvas, one context.** There is no `willReadFrequently`, no second layer
+  and no `requestAnimationFrame`; everything is immediate mode.
+
+## Tests
+
+```bash
+vendor/bin/phpunit    # behaviour and geometry, no browser needed
+bin/conformance       # pixel-for-pixel against Chrome
+```
 
 ## License
 
