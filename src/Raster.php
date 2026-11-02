@@ -103,10 +103,14 @@ final class Raster
         $nonZero = $rule !== self::EVENODD;
         $fw = (float) $width;
         $inv = 1.0 / $samples;
+        $ysAt = [];
 
         for ($y = $yStart; $y <= $yEnd; $y++) {
             $rowTop = (float) $y;
             $rowBottom = $rowTop + 1.0;
+            for ($s = 0; $s < $samples; $s++) {
+                $ysAt[$s] = $rowTop + ($s + 0.5) * $inv;
+            }
 
             while ($nextEdge < $edgeCount && $ey0[$nextEdge] < $rowBottom) {
                 if ($ey1[$nextEdge] > $rowTop) {
@@ -130,17 +134,34 @@ final class Raster
             $part = [];
             $diff = [];
 
-            for ($s = 0; $s < $samples; $s++) {
-                $ys = $rowTop + ($s + 0.5) * $inv;
-
-                $xs = [];
-                $ds = [];
-                foreach ($active as $e) {
-                    if ($ys >= $ey0[$e] && $ys < $ey1[$e]) {
-                        $xs[] = $ex0[$e] + ($ys - $ey0[$e]) * $edx[$e];
-                        $ds[] = $edir[$e];
+            // Crossings of every active edge with every sample line, gathered
+            // edge by edge so each edge's data is read once per row.
+            $sx = array_fill(0, $samples, []);
+            $sd = $sx;
+            foreach ($active as $e) {
+                $y0 = $ey0[$e];
+                $y1 = $ey1[$e];
+                $x0 = $ex0[$e];
+                $dx = $edx[$e];
+                $d = $edir[$e];
+                if ($y0 <= $ysAt[0] && $y1 > $ysAt[$samples - 1]) {
+                    for ($s = 0; $s < $samples; $s++) {
+                        $sx[$s][] = $x0 + ($ysAt[$s] - $y0) * $dx;
+                        $sd[$s][] = $d;
+                    }
+                } else {
+                    for ($s = 0; $s < $samples; $s++) {
+                        if ($ysAt[$s] >= $y0 && $ysAt[$s] < $y1) {
+                            $sx[$s][] = $x0 + ($ysAt[$s] - $y0) * $dx;
+                            $sd[$s][] = $d;
+                        }
                     }
                 }
+            }
+
+            for ($s = 0; $s < $samples; $s++) {
+                $xs = $sx[$s];
+                $ds = $sd[$s];
                 if (count($xs) < 2) {
                     continue;
                 }
