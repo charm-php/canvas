@@ -29,8 +29,9 @@ final class Raster
      * @param int $samples vertical samples per pixel row (>= 1)
      * @param callable(int, array<int,float>, int, int, int, int):void $rowFn
      *        receives (row index, coverage map keyed by absolute column, minX, maxX, fullMinX, fullMaxX)
-     *        where fullMinX..fullMaxX is the inclusive range guaranteed to be
-     *        fully covered (only sound when every sample produced one span).
+     *        where fullMinX..fullMaxX is an inclusive run of fully covered
+     *        columns (empty when fullMinX > fullMaxX).  The map holds every
+     *        other covered column and omits the columns of that run.
      */
     public static function walk(
         array $polygons,
@@ -45,18 +46,14 @@ final class Raster
         }
         $samples = max(1, $samples);
 
-        // ---- build the edge table -------------------------------------
-        $edges = [];
-        $topMost = null;
-        $bottomMost = null;
+        // ---- build the edge table (parallel arrays, sorted by top y) -------
+        $ey0 = $ey1 = $ex0 = $edx = $edir = [];
         foreach ($polygons as $flat) {
             $n = count($flat);
             if ($n < 6) {
                 continue;
             }
-            $closedX = $flat[$n - 2];
-            $closedY = $flat[$n - 1];
-            if (abs($closedX - $flat[0]) < 1e-9 && abs($closedY - $flat[1]) < 1e-9) {
+            if (abs($flat[$n - 2] - $flat[0]) < 1e-9 && abs($flat[$n - 1] - $flat[1]) < 1e-9) {
                 $n -= 2; // drop the duplicated closing vertex
             }
             if ($n < 6) {
@@ -75,51 +72,50 @@ final class Raster
                     continue; // horizontal edges never cross a scanline
                 }
                 if ($y0 < $y1) {
-                    $edges[] = [
-                        'y0' => $y0, 'y1' => $y1, 'x0' => $x0,
-                        'dx' => ($x1 - $x0) / ($y1 - $y0), 'dir' => 1,
-                    ];
+                    $ey0[] = $y0;
+                    $ey1[] = $y1;
+                    $ex0[] = $x0;
+                    $edx[] = ($x1 - $x0) / ($y1 - $y0);
+                    $edir[] = 1;
                 } else {
-                    $edges[] = [
-                        'y0' => $y1, 'y1' => $y0, 'x0' => $x1,
-                        'dx' => ($x0 - $x1) / ($y0 - $y1), 'dir' => -1,
-                    ];
+                    $ey0[] = $y1;
+                    $ey1[] = $y0;
+                    $ex0[] = $x1;
+                    $edx[] = ($x0 - $x1) / ($y0 - $y1);
+                    $edir[] = -1;
                 }
             }
         }
-        if ($edges === []) {
+        $edgeCount = count($ey0);
+        if ($edgeCount === 0) {
             return;
         }
 
-        foreach ($edges as $e) {
-            $topMost = $topMost === null ? $e['y0'] : min($topMost, $e['y0']);
-            $bottomMost = $bottomMost === null ? $e['y1'] : max($bottomMost, $e['y1']);
-        }
-
-        $yStart = max(0, (int) floor($topMost));
-        $yEnd = min($height - 1, (int) ceil($bottomMost) - 1);
+        $yStart = max(0, (int) floor(min($ey0)));
+        $yEnd = min($height - 1, (int) ceil(max($ey1)) - 1);
         if ($yStart > $yEnd) {
             return;
         }
 
-        usort($edges, fn(array $a, array $b): int => $a['y0'] <=> $b['y0']);
-        $edgeCount = count($edges);
+        array_multisort($ey0, SORT_ASC, SORT_NUMERIC, $ey1, $ex0, $edx, $edir);
         $nextEdge = 0;
         $active = [];
         $nonZero = $rule !== self::EVENODD;
+        $fw = (float) $width;
+        $inv = 1.0 / $samples;
 
         for ($y = $yStart; $y <= $yEnd; $y++) {
             $rowTop = (float) $y;
             $rowBottom = $rowTop + 1.0;
 
-            while ($nextEdge < $edgeCount && $edges[$nextEdge]['y0'] < $rowBottom) {
-                if ($edges[$nextEdge]['y1'] > $rowTop) {
-                    $active[] = $edges[$nextEdge];
+            while ($nextEdge < $edgeCount && $ey0[$nextEdge] < $rowBottom) {
+                if ($ey1[$nextEdge] > $rowTop) {
+                    $active[] = $nextEdge;
                 }
                 $nextEdge++;
             }
             foreach ($active as $k => $e) {
-                if ($e['y1'] <= $rowTop) {
+                if ($ey1[$e] <= $rowTop) {
                     unset($active[$k]);
                 }
             }
@@ -127,117 +123,129 @@ final class Raster
                 continue;
             }
 
-            $cov = [];
-            $minX = PHP_INT_MAX;
-            $maxX = PHP_INT_MIN;
-            $spanCount = 0;
-            $fullMin = PHP_INT_MAX;
-            $fullMax = PHP_INT_MIN;
-            $singleSpanEverySample = true;
-            $any = false;
+            // part[c]: summed horizontal overlap of the spans with cell c at
+            // the span ends; diff[c]: change in the number of samples that
+            // cover cells from c onward completely.  Cost is per edge, not
+            // per column.
+            $part = [];
+            $diff = [];
 
             for ($s = 0; $s < $samples; $s++) {
-                $ys = $rowTop + (($s + 0.5) / $samples);
+                $ys = $rowTop + ($s + 0.5) * $inv;
 
-                $crossings = [];
+                $xs = [];
+                $ds = [];
+                $m = 0;
                 foreach ($active as $e) {
-                    if ($ys >= $e['y0'] && $ys < $e['y1']) {
-                        $crossings[] = [$e['x0'] + ($ys - $e['y0']) * $e['dx'], $e['dir']];
+                    if ($ys >= $ey0[$e] && $ys < $ey1[$e]) {
+                        $x = $ex0[$e] + ($ys - $ey0[$e]) * $edx[$e];
+                        $d = $edir[$e];
+                        // insertion sort keeps crossings ordered by x
+                        $i = $m++;
+                        while ($i > 0 && $xs[$i - 1] > $x) {
+                            $xs[$i] = $xs[$i - 1];
+                            $ds[$i] = $ds[$i - 1];
+                            $i--;
+                        }
+                        $xs[$i] = $x;
+                        $ds[$i] = $d;
                     }
                 }
-                if ($crossings === []) {
-                    $singleSpanEverySample = false;
+                if ($m < 2) {
                     continue;
                 }
-                usort($crossings, fn(array $a, array $b): int => $a[0] <=> $b[0]);
 
-                $spans = self::spans($crossings, $nonZero);
-                if (count($spans) !== 1) {
-                    $singleSpanEverySample = false;
-                }
-                $spanCount += count($spans);
-                if ($spans === []) {
-                    continue;
-                }
-                $any = true;
-
-                foreach ($spans as [$xa, $xb]) {
-                    if ($xb <= 0.0 || $xa >= (float) $width) {
-                        continue;
-                    }
-                    if ($xa < $minX) {
-                        $minX = (int) floor($xa);
-                    }
-                    if ($xb > $maxX) {
-                        $maxX = (int) (ceil($xb) - 1);
-                    }
-                    $first = (int) floor($xa);
-                    $last = (int) ceil($xb) - 1;
-                    for ($c = $first; $c <= $last; $c++) {
-                        $left = $xa > $c ? $xa : (float) $c;
-                        $right = $xb < $c + 1 ? $xb : (float) ($c + 1);
-                        $overlap = $right - $left;
-                        if ($overlap <= 0.0) {
+                $w = 0;
+                $xa = 0.0;
+                for ($i = 0; $i < $m; $i++) {
+                    if ($nonZero) {
+                        $before = $w;
+                        $w += $ds[$i];
+                        if ($before === 0 && $w !== 0) {
+                            $xa = $xs[$i];
                             continue;
                         }
-                        $cov[$c] = ($cov[$c] ?? 0.0) + $overlap / $samples;
+                        if (!($before !== 0 && $w === 0)) {
+                            continue;
+                        }
+                    } else {
+                        if (($i & 1) === 0) {
+                            $xa = $xs[$i];
+                            continue;
+                        }
+                    }
+                    $xb = $xs[$i];
+                    if ($xa < 0.0) {
+                        $xa = 0.0;
+                    }
+                    if ($xb > $fw) {
+                        $xb = $fw;
+                    }
+                    if ($xb <= $xa) {
+                        continue;
+                    }
+                    $ca = (int) $xa;
+                    $cb = (int) ceil($xb) - 1;
+                    if ($ca === $cb) {
+                        $part[$ca] = ($part[$ca] ?? 0.0) + ($xb - $xa);
+                        continue;
+                    }
+                    $part[$ca] = ($part[$ca] ?? 0.0) + ($ca + 1 - $xa);
+                    $part[$cb] = ($part[$cb] ?? 0.0) + ($xb - $cb);
+                    if ($cb - $ca > 1) {
+                        $diff[$ca + 1] = ($diff[$ca + 1] ?? 0) + 1;
+                        $diff[$cb] = ($diff[$cb] ?? 0) - 1;
                     }
                 }
             }
 
-            if (!$any) {
+            if ($part === []) {
                 continue;
             }
 
-            if ($singleSpanEverySample && $minX <= $maxX) {
-                // With one span per sample the fully covered columns form one
-                // contiguous run, which callers can paint without per-pixel
-                // coverage work.
-                $fullMin = self::firstFullColumn($cov);
-                $fullMax = self::lastFullColumn($cov);
-                if ($fullMin > $fullMax) {
-                    $fullMin = 1;
-                    $fullMax = 0;
+            // ---- resolve the difference array into coverage ---------------
+            $keys = array_keys($part + $diff);
+            sort($keys, SORT_NUMERIC);
+            $cov = [];
+            $level = 0;
+            $prev = -1;
+            $runFrom = 1;
+            $runTo = 0;
+            $fullGaps = [];
+            foreach ($keys as $k) {
+                if ($level > 0 && $k - 1 > $prev) {
+                    if ($level >= $samples) {
+                        $fullGaps[] = [$prev + 1, $k - 1];
+                        if ($k - 1 - $prev > $runTo - $runFrom + 1) {
+                            $runFrom = $prev + 1;
+                            $runTo = $k - 1;
+                        }
+                    } else {
+                        $v = $level * $inv;
+                        for ($c = $prev + 1; $c < $k; $c++) {
+                            $cov[$c] = $v;
+                        }
+                    }
                 }
-            } else {
-                $fullMin = 1;
-                $fullMax = 0;
+                $level += $diff[$k] ?? 0;
+                $v = (($part[$k] ?? 0.0) + $level) * $inv;
+                if ($v > 0.0) {
+                    $cov[$k] = $v;
+                }
+                $prev = $k;
+            }
+            // Full runs other than the longest are handed over per cell.
+            foreach ($fullGaps as [$from, $to]) {
+                if ($from === $runFrom) {
+                    continue;
+                }
+                for ($c = $from; $c <= $to; $c++) {
+                    $cov[$c] = 1.0;
+                }
             }
 
-            $rowFn($y, $cov, $minX, $maxX, $fullMin, $fullMax);
+            $rowFn($y, $cov, $keys[0], $prev, $runFrom, $runTo);
         }
-    }
-
-    /**
-     * Turn sorted crossings into interior spans.
-     *
-     * @param list<array{0:float,1:int}> $crossings
-     * @return list<array{0:float,1:float}>
-     */
-    private static function spans(array $crossings, bool $nonZero): array
-    {
-        $spans = [];
-        if ($nonZero) {
-            $w = 0;
-            $start = null;
-            foreach ($crossings as [$x, $dir]) {
-                $before = $w;
-                $w += $dir;
-                if ($before === 0 && $w !== 0) {
-                    $start = $x;
-                } elseif ($before !== 0 && $w === 0 && $start !== null) {
-                    $spans[] = [$start, $x];
-                    $start = null;
-                }
-            }
-            return $spans;
-        }
-
-        $n = count($crossings);
-        for ($i = 0; $i + 1 < $n; $i += 2) {
-            $spans[] = [$crossings[$i][0], $crossings[$i + 1][0]];
-        }
-        return $spans;
     }
 
     /**
@@ -299,26 +307,5 @@ final class Raster
             }
         }
         return $nonZero ? $winding !== 0 : ($crossings % 2 === 1);
-    }
-
-    private static function firstFullColumn(array $cov): int
-    {
-        foreach ($cov as $c => $v) {
-            if ($v >= 0.999999) {
-                return (int) $c;
-            }
-        }
-        return PHP_INT_MAX;
-    }
-
-    private static function lastFullColumn(array $cov): int
-    {
-        $right = PHP_INT_MIN;
-        foreach ($cov as $c => $v) {
-            if ($v >= 0.999999) {
-                $right = (int) $c;
-            }
-        }
-        return $right;
     }
 }
