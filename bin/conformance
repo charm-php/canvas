@@ -1,0 +1,169 @@
+#!/usr/bin/env php
+<?php declare(strict_types=1);
+
+/**
+ * Conformance report: compares phasync/canvas against real Chrome.
+ *
+ *   bin/conformance                 # summary
+ *   bin/conformance --tag clip      # one group
+ *   bin/conformance -f 'ctm/*'      # filter by case id
+ *   bin/conformance -v              # show a text diff map per failure
+ *   bin/conformance --list          # list case ids
+ */
+
+$root = dirname(__DIR__);
+require $root . '/vendor/autoload.php';
+
+use phasync\Canvas\Conformance\Runner;
+
+$argvv = array_slice($argv, 1);
+$filter = null;
+$tag = null;
+$dump = null;
+$verbose = false;
+$showMaps = 5;
+$list = false;
+$showAll = false;
+
+for ($i = 0; $i < count($argvv); $i++) {
+    $a = $argvv[$i];
+    if ($a === '--filter' || $a === '-f') {
+        $filter = $argvv[++$i] ?? null;
+    } elseif ($a === '--tag') {
+        $tag = $argvv[++$i] ?? null;
+    } elseif ($a === '--verbose' || $a === '-v') {
+        $verbose = true;
+        $showMaps = 10000;
+    } elseif ($a === '--maps') {
+        $showMaps = (int) ($argvv[++$i] ?? 5);
+    } elseif ($a === '--dump') {
+        $dump = $argvv[++$i] ?? null;
+    } elseif ($a === '--list') {
+        $list = true;
+    } elseif ($a === '--all') {
+        $showAll = true;
+    } elseif ($a === '--help' || $a === '-h') {
+        echo "usage: bin/conformance [--filter GLOB] [--tag TAG] [--verbose] [--maps N] [--list] [--all]\n";
+        exit(0);
+    }
+}
+
+if ($dump !== null) {
+    echo \phasync\Canvas\Conformance\Runner::dump($dump);
+    exit(0);
+}
+
+if ($list) {
+    foreach (Runner::filtered($filter, $tag) as $case) {
+        printf("%-44s %-12s %s\n", $case['id'], $case['tag'], $case['tier']);
+    }
+    exit(0);
+}
+
+$run = Runner::run($filter, $tag);
+$results = $run['results'];
+
+$pass = 0;
+$fail = 0;
+$known = [];
+$byTag = [];
+$byReason = [];
+$fails = [];
+
+foreach ($results as $r) {
+    $t = $r['tag'];
+    $byTag[$t]['total'] = ($byTag[$t]['total'] ?? 0) + 1;
+    if ($r['pass']) {
+        $pass++;
+        $byTag[$t]['pass'] = ($byTag[$t]['pass'] ?? 0) + 1;
+        if ($verbose) {
+            printf("  ok    %-44s agree=%.1f%%\n", $r['id'], $r['agreement'] * 100);
+        }
+        continue;
+    }
+    if (($r['status'] ?? '') === 'known') {
+        // A declared divergence: measured, written down, not treated as a
+        // library fault, and still printed so it cannot hide.
+        $known[] = $r;
+        continue;
+    }
+    $fail++;
+    $fails[] = $r;
+    $key = $r['kind'] === 'error' ? preg_replace('/:[^:]*$/', '', (string) $r['reason']) : $r['reason'];
+    $byReason[$key] = ($byReason[$key] ?? 0) + 1;
+}
+
+$total = $pass + $fail + count($known);
+printf("\nphasync/canvas conformance  (%s)\n", $run['chrome']);
+printf("%s\n", str_repeat('─', 72));
+printf("  %3d/%3d passing (%.1f%%) in %.1fs%s\n", $pass, $total, $total ? $pass / $total * 100 : 0, $run['duration'],
+    $known === [] ? '' : sprintf('   (%d documented divergence%s)', count($known), count($known) === 1 ? '' : 's'));
+
+if ($byTag) {
+    printf("\n  by area\n");
+    ksort($byTag);
+    foreach ($byTag as $t => $row) {
+        $p = $row['pass'] ?? 0;
+        $bar = $row['total'] > 0 ? str_repeat('=', (int) round(30 * $p / $row['total'])) . str_repeat('.', 30 - (int) round(30 * $p / $row['total'])) : '';
+        printf("  %-14s %3d/%3d %s\n", $t, $p, $row['total'], $bar);
+    }
+}
+
+if ($byReason && $verbose) {
+    printf("\n  failure causes\n");
+    arsort($byReason);
+    foreach (array_slice($byReason, 0, 20, true) as $reason => $n) {
+        printf("  %4d  %s\n", $n, substr((string) $reason, 0, 100));
+    }
+}
+
+if ($known) {
+    printf("\n  documented divergences (%d)\n", count($known));
+    foreach ($known as $r) {
+        printf(
+            "  %-44s agree=%5.1f%%  %s\n",
+            $r['id'],
+            $r['agreement'] * 100,
+            wordwrap((string) $r['known'], 78, "\n" . str_repeat(' ', 49), false)
+        );
+    }
+}
+
+if ($fails) {
+    printf("\n  failures (%d)\n", count($fails));
+    foreach ($fails as $r) {
+        if (!$showAll && count($fails) > 60 && array_search($r, $fails, true) > 59) {
+            printf("  ... %d more (use --all)\n", count($fails) - 60);
+            break;
+        }
+        printf(
+            "  %-44s %-7s agree=%5.1f%% cov=%6.1f%% bboxΔ=%-3d %s\n",
+            $r['id'],
+            $r['tier'],
+            $r['agreement'] * 100,
+            $r['coverageDelta'] * 100,
+            $r['bboxDelta'],
+            substr((string) $r['reason'], 0, 70)
+        );
+    }
+
+    $withMap = 0;
+    foreach ($fails as $r) {
+        if ($withMap >= $showMaps) {
+            break;
+        }
+        if ($r['map'] === '') {
+            continue;
+        }
+        $withMap++;
+        printf("\n  ┌ %s  (php box [%s] vs chrome [%s])\n", $r['id'], implode(',', $r['phpBbox']), implode(',', $r['chromeBbox']));
+        foreach (explode("\n", $r['map']) as $line) {
+            echo '  │ ' . $line . "\n";
+        }
+        echo "  │ legend: '-' agree  '#' differ  '+' only phasync painted  '.' only chrome painted  ' ' empty\n";
+        echo "  └\n";
+    }
+}
+
+printf("\n");
+exit($fail > 0 ? 1 : 0);
