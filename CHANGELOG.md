@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.2.3]
+ext-imagick, when loaded, now draws the canvas (see README, "Renderers"). The
+public `Canvas`/`Context` API is unchanged; set `Canvas::$renderer = 'php'` to
+keep the old behaviour.
+
+### Added
+- `RendererInterface` (what `Context` needs from a pixel holder), implemented by
+  `Surface` (PHP) and the new `ImagickSurface`
+- `Canvas::$renderer` (`null|'php'|'imagick'`), `Canvas::rendererName()`,
+  `CANVAS_RENDERER` for phpunit, `bin/conformance` (also `--renderer=`) and
+  `benchmarks/run.php`
+- `Paint::linearStrip()` so the Imagick renderer paints linear gradients from a
+  512-sample strip instead of per pixel
+
+### Conformance vs Chrome
+PHP renderer: 335/336 (as before). Imagick renderer: 329/336, with these cases
+below the tier tolerance and declared in `Runner::IMAGICK_KNOWN`; each is an
+engine difference that supersampling and calibration cannot remove:
+
+| case | agreement | reason |
+| --- | --- | --- |
+| `gco/color-dodge`, `gco/color-dodge/alpha` | 89.1% | IM6 color-dodge is not the W3C formula (zero backdrop, full source gives 1, Chrome 0) |
+| `path/rect-in-path-stroke` | 95.0% | IM6 polygon antialiasing is a distance ramp whose error depends on edge direction: a half-covered 1px row reads 109 or 135, Chrome 128 |
+| `roundrect/stroke` | 94.8% | same, 1px stroke |
+| `clip/triangle` | 97.5% | same, diagonal clip edge (<= 12/255 per edge pixel; strict tier needs 99.5%) |
+| `clip/evenodd-donut` | 96.7% | same, curved clip edge |
+
+How IM6 was made to fit: its polygon fill is a distance ramp that draws about
+1.4% too much coverage (6% on a 1px stroke), so polygons are drawn at 8x, 4x,
+2x or 1x (fewer for bigger regions, 1.5M sample budget), box-filtered, and a
+black point of 0.56/k is applied to alpha. `filter=point` is set on every image
+because `distortImage` otherwise resamples with EWA instead of bilinear. Fractional
+subrect and rotated images use `distortImage` with edge replication and the
+quad's outline as the mask (whole pixels with half rounding up when
+axis-aligned, as Chrome does).
+
+### Not done with Imagick
+- Strokes are outlined in PHP (`Stroker`) and filled as polygons, not stroked by
+  `ImagickDraw`: the path commands cost ~0.5 ms per segment in IM6, and the
+  outline already carries caps, joins, miters, dashes and the CTM scaling
+- Radial gradients and patterns are sampled per pixel in PHP (no Imagick
+  primitive matches the canvas semantics)
+- Text still rasterises glyph masks with GD (`TextRaster`) and composites them
+- Subpaths of one fill are combined as union / difference / XOR of per-ring
+  masks, which equals the fill rule for nested or disjoint rings but not for
+  overlapping subpaths of opposite winding
+
+### Benchmarks
+ms/frame (`php benchmarks/run.php graph|mixed [--jit]`, `CANVAS_RENDERER=...`),
+interpreter / tracing JIT:
+
+| frame | php | imagick |
+| --- | --- | --- |
+| graph (416x320, 3 shapes, toDots) | 25.3 / 13.8 | 178 / 174 |
+| mixed (640x480) | 434 / 139 | 287 / 286 |
+
+Imagick is **slower** on graph (about 7x interpreted, 13x with the JIT): each of
+its three shapes spans most of the canvas, IM6 fills a polygon at ~70 ns per
+supersampled pixel times the edge count, and every layer costs several
+full-region allocations and composites; toDots on the Imagick pixels adds ~25 ms
+of PHP unpacking. On mixed it is faster without the JIT (a 640x480 gradient,
+ellipse, clip, two images) but 2x slower than the JIT'd PHP renderer. It does not
+get faster with `--jit` because the time is inside ImageMagick. Hosts without
+the JIT, large images and gradients are where it pays; many small or thin shapes
+and JIT'd hot loops are where the PHP renderer wins.
+
 ## [0.2.2]
 Pixels are stored in GD's truecolor format, so nothing is converted when they
 cross into or out of GD. This is an internal change: the public API is

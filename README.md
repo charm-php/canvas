@@ -61,11 +61,40 @@ the row loops that fill whole runs touch it directly. Benchmarks:
 | `Path.php` | path building and curve flattening |
 | `Raster.php` | polygon coverage, fill rules, point-in-path |
 | `Stroker.php` | outlines, caps, joins, miters, dashes |
-| `Surface.php` | the pixel buffer, clip masks, compositing, blits |
+| `Surface.php` | the PHP renderer: pixel buffer, clip masks, compositing, blits |
+| `ImagickSurface.php`, `RendererInterface.php` | the Imagick renderer and the contract both implement |
 | `Compositing.php` | the 26 global composite operations |
 | `Gradient.php`, `Pattern.php`, `Paint.php` | what a style paints with |
 | `Fonts.php`, `TextRaster.php` | CSS font shorthand, TTF metrics, glyph masks |
 | `Codec/GdCodec.php` | PNG/JPEG in and out, GD and Imagick handoff |
+
+## Renderers
+
+Two renderers sit behind `RendererInterface`; a `Context` does not know which
+one it has and the `Canvas` API is the same.
+
+- `php` (`Surface`): the pure-PHP rasteriser described above.
+- `imagick` (`ImagickSurface`): pixels live in an `Imagick` image (8-bit RGBA).
+  Paths arrive flattened exactly as for the PHP renderer; polygons are drawn
+  with `ImagickDraw` at up to 8x resolution and box-filtered down (IM6's own
+  antialiasing is not area coverage), paints are layers composited with the
+  matching `COMPOSITE_*` operator, clips are alpha masks, images go through
+  `distortImage`, linear gradients through a sampled strip.
+
+**Selection.** `Canvas::$renderer` is `null` (automatic), `'php'` or `'imagick'`.
+Automatic means Imagick when `extension_loaded('imagick')`, else PHP; set
+`Canvas::$renderer = 'php'` before creating canvases to opt out.
+`Canvas::rendererName()` tells which one is in effect. Tests, `bin/conformance`
+and `benchmarks/run.php` read the `CANVAS_RENDERER=php|imagick` environment
+variable; `bin/conformance --renderer=imagick` does the same.
+
+**What differs.** The Imagick renderer matches Chrome on 329 of 336 conformance
+cases (PHP: 335), see the CHANGELOG for the exceptions. Antialiasing differs by
+a few levels of 255 at shape edges; alpha is 8-bit instead of 7. It is faster
+for large images and gradients on hosts without the JIT, and slower for scenes of
+a few shapes where per-call overhead dominates (see benchmarks in the
+CHANGELOG). `Surface::getPixel()`/`setPixel()` exist on both but are a single
+Imagick call each on `ImagickSurface`; `idx()`/`blendPixel()` are PHP-only.
 
 ## Conformance
 
