@@ -9,15 +9,34 @@ unchanged. Alpha now has 7 bits instead of 8 (ImageData still reads and writes
 ### Changed
 - `Surface` holds one int per pixel as 0xAARRGGBB with alpha 0 = opaque ..
   127 = transparent. Source-over blends in that 7-bit domain with an exact
-  integer division by 127. `rawPixel()`, `clonePixels()` and `setPixels()` use
-  the same GD ints
+  integer division by 127. `clonePixels()` and `setPixels()` use the same GD ints
 - `GdCodec` no longer remaps alpha. Measured at 640x480: `imagecolorat` loop
   18 ms out, `imagesetpixel` loop 11.5 ms in (the bulk route through
   `imagegd2()` is not available: common PHP builds are compiled without GD/GD2
   format support)
 - `bin/conformance`: still 335/336; 31 cases moved by at most 1.5 points (see
-  the commit message). `graph-frame` 30.3 -> 28.0 ms, `mixed-frame`
-  492 -> 480 ms
+  the commit message)
+
+### Added
+- Pixel access on `Surface`: `idx($x, $y)`, `getPixel($x, $y)` (raw GD int,
+  transparent outside), `setPixel($x, $y, $v)` and `blendPixel($x, $y, $v,
+  $alpha7)` (source-over, same arithmetic as the row fast path). Single pixels
+  are addressed through them everywhere (blits, glyph masks, clear edges);
+  only the whole-run row loops use the array directly. `rawPixel()` is now
+  `getPixel()`; the old float-RGBA `getPixel()` is `colorAt()`
+- `benchmarks/run.php <graph|mixed> [--jit]`: 10 warm passes, mean of 10
+  frames; `--jit` re-executes with the tracing JIT
+
+### Performance
+Found with excimer under the warm tracing JIT: `toDots` no longer packs rows to
+strings, flat blocks are memoised by pixel value, `Raster::walk` skips a sort
+call per sample, `round()` calls on the per-pixel path are integer arithmetic,
+`inQuad` is unrolled. Output is unchanged. ms/frame, interpreter / JIT:
+
+| frame | before | after |
+| --- | --- | --- |
+| graph (416x320, toDots 104x80) | 26.6 / 17.9 | 25.2 / 13.2 |
+| mixed (640x480) | 471.8 / 177.1 | 431 / 136.6 |
 
 ## [0.2.1]
 Rendering is much faster with the same output. A 416x320 graph frame

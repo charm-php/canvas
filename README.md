@@ -45,6 +45,15 @@ therefore has 7 bits; `getImageData()`/`putImageData()`/`toPixels()` still speak
 differ from a browser by a step or two. GD is used to decode and encode, and to
 rasterise glyphs (`TextRaster`), whose pixels are composited as they are.
 
+#### Pixel access
+
+Address single pixels by coordinate with `Surface::getPixel($x, $y)`,
+`setPixel($x, $y, $v)` and `blendPixel($x, $y, $v, $alpha7)` (source-over of
+`$v`'s 0xRRGGBB at opacity 0..127); `idx($x, $y)` gives the array index. The
+raw array (`clonePixels()`/`setPixels()`) is GD truecolor, as above, and only
+the row loops that fill whole runs touch it directly. Benchmarks:
+`php benchmarks/run.php graph|mixed [--jit]`.
+
 | File | Role |
 | --- | --- |
 | `Context.php` | the `CanvasRenderingContext2D` API, state and property rules |
