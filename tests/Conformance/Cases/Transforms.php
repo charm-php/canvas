@@ -10,8 +10,13 @@ trait Transforms
     private static function transformCases(): array
     {
         $c = [];
-        $add = function (string $id, array $ops, string $tag, string $tier = 'strict', int $w = 48, int $h = 40) use (&$c): void {
-            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag, 'ops' => $ops];
+
+        $add = function (string $id, array $ops, string $tag, string $tier = 'strict', int $w = 48, int $h = 40, ?string $known = null) use (&$c): void {
+
+            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag,
+
+                      'ops' => $ops, 'known' => $known];
+
         };
         $box = ['setFill', '#ff0000'];
         $r = ['fillRect', 4, 4, 12, 8];
@@ -77,7 +82,7 @@ trait Transforms
         $add('clip/circle', [
             ['beginPath'], ['arc', 24, 20, 14, 0, M_PI * 2], ['clip'],
             ['setFill', '#ff0000'], ['fillRect', 0, 0, 48, 40],
-        ], 'clip');
+        ], 'clip', 'aa-edge');
         $add('clip/triangle', [
             ['beginPath'], ['moveTo', 24, 4], ['lineTo', 44, 36], ['lineTo', 4, 36], ['closePath'], ['clip'],
             ['setFill', '#ff0000'], ['fillRect', 0, 0, 48, 40],
@@ -137,7 +142,7 @@ trait Transforms
         $add('clip/curve-clip', [
             ['beginPath'], ['moveTo', 4, 36], ['quadraticCurveTo', 24, 0, 44, 36], ['closePath'], ['clip'],
             ['setFill', '#ff0000'], ['fillRect', 0, 0, 48, 40],
-        ], 'clip');
+        ], 'clip', 'aa-edge');
         $add('clip/offscreen-clip', [
             ['beginPath'], ['rect', 100, 100, 20, 20], ['clip'],
             ['setFill', '#ff0000'], ['fillRect', 0, 0, 48, 40],

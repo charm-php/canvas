@@ -10,8 +10,9 @@ trait Media
     private static function mediaCases(): array
     {
         $c = [];
-        $add = function (string $id, array $ops, string $tag, string $tier = 'normal', int $w = 40, int $h = 32) use (&$c): void {
-            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag, 'ops' => $ops];
+        $add = function (string $id, array $ops, string $tag, string $tier = 'normal', int $w = 40, int $h = 32, ?string $known = null) use (&$c): void {
+            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag,
+                      'ops' => $ops, 'known' => $known];
         };
 
         // ---- drawImage ----------------------------------------------------

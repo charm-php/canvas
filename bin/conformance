@@ -65,6 +65,7 @@ $results = $run['results'];
 
 $pass = 0;
 $fail = 0;
+$known = [];
 $byTag = [];
 $byReason = [];
 $fails = [];
@@ -80,16 +81,23 @@ foreach ($results as $r) {
         }
         continue;
     }
+    if (($r['status'] ?? '') === 'known') {
+        // A declared divergence: measured, written down, not treated as a
+        // library fault, and still printed so it cannot hide.
+        $known[] = $r;
+        continue;
+    }
     $fail++;
     $fails[] = $r;
     $key = $r['kind'] === 'error' ? preg_replace('/:[^:]*$/', '', (string) $r['reason']) : $r['reason'];
     $byReason[$key] = ($byReason[$key] ?? 0) + 1;
 }
 
-$total = $pass + $fail;
+$total = $pass + $fail + count($known);
 printf("\nphasync/canvas conformance  (%s)\n", $run['chrome']);
 printf("%s\n", str_repeat('─', 72));
-printf("  %3d/%3d passing (%.1f%%) in %.1fs\n", $pass, $total, $total ? $pass / $total * 100 : 0, $run['duration']);
+printf("  %3d/%3d passing (%.1f%%) in %.1fs%s\n", $pass, $total, $total ? $pass / $total * 100 : 0, $run['duration'],
+    $known === [] ? '' : sprintf('   (%d documented divergence%s)', count($known), count($known) === 1 ? '' : 's'));
 
 if ($byTag) {
     printf("\n  by area\n");
@@ -106,6 +114,18 @@ if ($byReason && $verbose) {
     arsort($byReason);
     foreach (array_slice($byReason, 0, 20, true) as $reason => $n) {
         printf("  %4d  %s\n", $n, substr((string) $reason, 0, 100));
+    }
+}
+
+if ($known) {
+    printf("\n  documented divergences (%d)\n", count($known));
+    foreach ($known as $r) {
+        printf(
+            "  %-44s agree=%5.1f%%  %s\n",
+            $r['id'],
+            $r['agreement'] * 100,
+            wordwrap((string) $r['known'], 78, "\n" . str_repeat(' ', 49), false)
+        );
     }
 }
 

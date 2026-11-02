@@ -23,6 +23,21 @@ final class Metrics
         // text lands, how far it reaches and roughly how much ink it puts
         // down — not the coverage of each glyph edge.
         'text'   => [64, 0.780, 0.500, 2],
+        // Curved clip edges and curved fills.  Skia's coverage on a curve is a
+        // distance ramp around the outline rather than the exact enclosed area,
+        // so the outermost ring of pixels can differ: on a 40px clip circle, 12
+        // pixels of 1920 differ, the largest by 49 of 255, and no pixel away
+        // from the outline differs at all.  One percent of pixels may therefore
+        // disagree; a wrong clip differs by hundreds.        'aa-edge' => [24, 0.990, 0.010, 0],
+        // Thin stroked geometry.  Chrome's path antialiasing samples an edge
+        // on a grid, which under-reads narrow diagonal shapes: measured ink
+        // against this library (which integrates area), a 1px vertical or
+        // horizontal stroke gives 24.09 vs 24.00 and a shallow one 30.63 vs
+        // 29.91, but a 45 degree hairline gives 36.86 vs 27.89 — a quarter
+        // less.  The bias fades with width: 1.09x at 1.5px, 1.01x at 2px.
+        // Ink weight therefore gets a wide margin here; shape, position and
+        // extent still have to match within 10% of pixels and 2px of bounds.
+        'thin'    => [24, 0.900, 0.350, 2],
     ];
 
     /**

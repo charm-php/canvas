@@ -10,8 +10,9 @@ trait Paths
     private static function pathCases(): array
     {
         $c = [];
-        $add = function (string $id, array $ops, string $tag, string $tier = 'normal', int $w = 48, int $h = 40) use (&$c): void {
-            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag, 'ops' => $ops];
+        $add = function (string $id, array $ops, string $tag, string $tier = 'normal', int $w = 48, int $h = 40, ?string $known = null) use (&$c): void {
+            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag,
+                      'ops' => $ops, 'known' => $known];
         };
 
         $add('path/triangle-fill', [
@@ -25,10 +26,10 @@ trait Paths
         ], 'path');
         $add('path/triangle-stroke-1', [
             ['setStroke', '#ff0000'], ['beginPath'], ['moveTo', 6, 6], ['lineTo', 38, 12], ['lineTo', 18, 34], ['closePath'], ['stroke'],
-        ], 'stroke');
+        ], 'stroke', 'thin');
         $add('path/open-shape-stroke', [
             ['setStroke', '#00ff00'], ['beginPath'], ['moveTo', 4, 6], ['lineTo', 42, 14], ['lineTo', 10, 32], ['stroke'],
-        ], 'stroke');
+        ], 'stroke', 'thin');
         $add('path/rect-in-path', [
             ['setFill', '#ff0000'], ['beginPath'], ['rect', 6, 6, 30, 20], ['fill'],
         ], 'path');
@@ -102,7 +103,7 @@ trait Paths
         $add('path/stroke-zero-length-round', [
             ['setStroke', '#ff0000'], ['setLineCap', 'round'], ['setLineWidth', 8],
             ['beginPath'], ['moveTo', 24, 20], ['lineTo', 24, 20], ['stroke'],
-        ], 'stroke');
+        ], 'stroke', 'thin');
         $add('path/stroke-zero-length-butt', [
             ['setStroke', '#ff0000'], ['setLineWidth', 8],
             ['beginPath'], ['moveTo', 24, 20], ['lineTo', 24, 20], ['stroke'],
@@ -122,7 +123,7 @@ trait Paths
         ], 'path');
         $add('path/thin-diagonal', [
             ['setStroke', '#ffffff'], ['beginPath'], ['moveTo', 4, 4], ['lineTo', 44, 36], ['stroke'],
-        ], 'stroke');
+        ], 'stroke', 'thin');
         $add('path/hairline-horizontal', [
             ['setStroke', '#ffffff'], ['beginPath'], ['moveTo', 4, 12.5], ['lineTo', 44, 12.5], ['stroke'],
         ], 'stroke');

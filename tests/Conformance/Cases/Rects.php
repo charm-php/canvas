@@ -14,8 +14,13 @@ trait Rects
     private static function rectCases(): array
     {
         $c = [];
-        $add = function (string $id, array $ops, string $tag, string $tier = 'strict', int $w = 32, int $h = 24) use (&$c): void {
-            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag, 'ops' => $ops];
+
+        $add = function (string $id, array $ops, string $tag, string $tier = 'strict', int $w = 32, int $h = 24, ?string $known = null) use (&$c): void {
+
+            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag,
+
+                      'ops' => $ops, 'known' => $known];
+
         };
 
         $add('fillrect/unit', [['setFill', '#ff0000'], ['fillRect', 0, 0, 1, 1]], 'raster');

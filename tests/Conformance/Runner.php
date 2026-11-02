@@ -51,12 +51,27 @@ final class Runner
             }
 
             $m = Metrics::compare($mine['rgba'], $theirs['rgba'], $case['w'], $case['h'], $case['tier']);
+            $note = $case['known'] ?? null;
+            $status = $m['pass'] ? 'pass' : 'fail';
+            if ($note !== null) {
+                if ($m['pass']) {
+                    // A stale note is a report of its own: Chrome and the
+                    // library agree now, so the divergence must stop being
+                    // declared.
+                    $m['pass'] = false;
+                    $m['reason'] = 'documented divergence now matches Chrome, remove the note';
+                    $status = 'stale-note';
+                } else {
+                    $status = 'known';
+                }
+            }
             $results[$id] = array_merge($m, [
                 'id' => $id,
                 'tag' => $case['tag'],
                 'tier' => $case['tier'],
-                'status' => $m['pass'] ? 'pass' : 'fail',
-                'kind' => $m['pass'] ? 'ok' : 'diff',
+                'known' => $note,
+                'status' => $status,
+                'kind' => $m['pass'] ? 'ok' : ($status === 'known' ? 'known' : 'diff'),
                 'map' => $m['pass'] ? '' : Metrics::asciiMap($mine['rgba'], $theirs['rgba'], $case['w'], $case['h']),
                 'php' => $mine['rgba'],
                 'chrome' => $theirs['rgba'],
@@ -230,6 +245,7 @@ final class Runner
             'id' => $case['id'],
             'tag' => $case['tag'],
             'tier' => $case['tier'],
+            'known' => $case['known'] ?? null,
             'status' => 'fail',
             'kind' => $kind,
             'map' => '',

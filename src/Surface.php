@@ -152,7 +152,9 @@ final class Surface
         $w = $this->width;
         $h = $this->height;
         $bytes = str_repeat("\0", $w * $h);
-        Raster::walk($polygons, $rule, $w, $h, $this->verticalSamples,
+        // A clip mask is built once and reused for every later draw, so it is
+        // worth sampling it more finely than a single fill.
+        Raster::walk($polygons, $rule, $w, $h, max($this->verticalSamples, 16),
             function (int $y, array $cov) use (&$bytes, $w, $h): void {
                 if ($y < 0 || $y >= $h) {
                     return;

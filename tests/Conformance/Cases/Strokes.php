@@ -10,8 +10,9 @@ trait Strokes
     private static function strokeCases(): array
     {
         $c = [];
-        $add = function (string $id, array $ops, string $tag, string $tier = 'normal', int $w = 48, int $h = 40) use (&$c): void {
-            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag, 'ops' => $ops];
+        $add = function (string $id, array $ops, string $tag, string $tier = 'normal', int $w = 48, int $h = 40, ?string $known = null) use (&$c): void {
+            $c[] = ['id' => $id, 'w' => $w, 'h' => $h, 'tier' => $tier, 'tag' => $tag,
+                      'ops' => $ops, 'known' => $known];
         };
 
         foreach ([1, 1.5, 2, 2.5, 3, 4, 5.5, 8, 13] as $lw) {
@@ -96,7 +97,7 @@ trait Strokes
         $add('dash/round-caps', [
             ['setStroke', '#ff0000'], ['setLineWidth', 8], ['setLineCap', 'round'], ['setDash', [1, 6]],
             ['beginPath'], ['moveTo', 4, 20], ['lineTo', 44, 20], ['stroke'],
-        ], 'dash');
+        ], 'dash', 'thin');
         $add('dash/butt-caps', [
             ['setStroke', '#ff0000'], ['setLineWidth', 8], ['setDash', [1, 6]],
             ['beginPath'], ['moveTo', 4, 20], ['lineTo', 44, 20], ['stroke'],
@@ -108,7 +109,7 @@ trait Strokes
         $add('dash/circle', [
             ['setStroke', '#ff0000'], ['setLineWidth', 4], ['setDash', [5, 5]],
             ['beginPath'], ['arc', 24, 20, 14, 0, M_PI * 2], ['stroke'],
-        ], 'dash');
+        ], 'dash', 'thin');
         $add('dash/uneven', [
             ['setStroke', '#ff0000'], ['setLineWidth', 6], ['setDash', [10, 2, 2, 2]],
             ['beginPath'], ['moveTo', 2, 20], ['lineTo', 46, 20], ['stroke'],
