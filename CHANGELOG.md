@@ -6,6 +6,10 @@
   any pixel in it is. An antialiased edge no longer spreads one dot outwards, and
   a line a quarter of a cell wide shows as one Braille dot, not two. Colours are
   unchanged (the coverage-weighted mean of the covered pixels).
+- `toDots()` at the canvas's own size takes a direct path, one pixel per dot
+  (4.6 → ~1 ms for 104x80). A consumer that only needs dots can rasterise at the
+  dot grid with a `scale()` and skip the downsampling: the graph benchmark's
+  frame drops from 26 to 9 ms interpreted, with 3 of 584 lit dots differing.
 
 ## [0.2.3]
 A second renderer on ext-imagick, opt-in with `Canvas::$renderer = 'imagick'`

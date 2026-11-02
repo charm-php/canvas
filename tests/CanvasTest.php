@@ -495,4 +495,27 @@ final class CanvasTest extends TestCase
         $dots = $c->toDots(16, 4);
         $this->assertSame(\str_repeat("\0", 3) . \str_repeat("\1", 12) . "\0", \substr($dots['on'], 0, 16));
     }
+
+    public function testToDotsAtOwnSizeMatchesBlockPath(): void
+    {
+        // One pixel per dot: a pixel at least half covered is on, in its own colour.
+        $canvas = new Canvas(8, 4);
+        $ctx = $canvas->getContext();
+        $ctx->fillStyle = '#ff0000';
+        $ctx->fillRect(0.5, 0, 3, 4);          // x 0.5..3.5: pixel 0 half covered, 1-2 full, 3 half
+        $ctx->fillStyle = 'rgba(0,0,255,0.25)';
+        $ctx->fillRect(5, 0, 3, 4);            // 25% alpha: off
+        $d = $canvas->toDots(8, 4);
+        $this->assertSame("\1\1\1\1\0\0\0\0", substr($d['on'], 0, 8));
+        $this->assertSame("\xff\x00\x00", substr($d['rgb'], 3, 3));
+        // The same drawing at 2x, downsampled through the block path, gives the same dots.
+        $big = new Canvas(16, 8);
+        $c2 = $big->getContext();
+        $c2->scale(2, 2);
+        $c2->fillStyle = '#ff0000';
+        $c2->fillRect(0.5, 0, 3, 4);
+        $c2->fillStyle = 'rgba(0,0,255,0.25)';
+        $c2->fillRect(5, 0, 3, 4);
+        $this->assertSame($d['on'], $big->toDots(8, 4)['on']);
+    }
 }

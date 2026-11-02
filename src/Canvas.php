@@ -269,6 +269,21 @@ class Canvas
         $bg = $background === null ? null : ColorParser::parseNormalized($background);
         // GD truecolor ints (alpha 0 opaque .. 127 transparent), row after row.
         $px = $this->surface->clonePixels();
+
+        if ($w === $sw && $h === $sh && $bg === null) {
+            // One pixel per dot (a canvas rasterised at the dot grid): the pixel's own
+            // coverage decides, with no block to average.
+            foreach ($px as $p) {
+                if ($p >= 0x40000000) {
+                    $on .= "\0";
+                    $rgb .= "\0\0\0";
+                } else {
+                    $on .= "\1";
+                    $rgb .= \chr(($p >> 16) & 0xFF) . \chr(($p >> 8) & 0xFF) . \chr($p & 0xFF);
+                }
+            }
+            return ['width' => $w, 'height' => $h, 'on' => $on, 'rgb' => $rgb];
+        }
         $memo = [];
         $xRange = [];
         for ($tx = 0; $tx < $w; $tx++) {
