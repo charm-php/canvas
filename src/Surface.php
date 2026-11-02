@@ -81,16 +81,28 @@ final class Surface
             $this->clip = $mask;
             return;
         }
+        // Combine only where the new mask is neither 0 nor 255: whole runs of
+        // those are skipped or zeroed in one step.
         $existing = $this->clip;
         $len = strlen($existing);
-        for ($i = 0; $i < $len; $i++) {
-            $a = \ord($existing[$i]);
-            if ($a === 0) {
+        $out = '';
+        for ($i = 0; $i < $len;) {
+            $n = strspn($mask, "\xFF", $i);
+            if ($n > 0) {
+                $out .= substr($existing, $i, $n);
+                $i += $n;
                 continue;
             }
-            $b = \ord($mask[$i]);
-            $existing[$i] = \chr(intdiv($a * $b, 255));
+            $n = strspn($mask, "\0", $i);
+            if ($n > 0) {
+                $out .= str_repeat("\0", $n);
+                $i += $n;
+                continue;
+            }
+            $out .= \chr(intdiv(\ord($existing[$i]) * \ord($mask[$i]), 255));
+            $i++;
         }
+        $existing = $out;
         $this->clip = $existing;
     }
 
@@ -336,25 +348,64 @@ final class Surface
         string $mode = 'source-over',
         bool $useClip = true,
     ): void {
-        $this->rectRegion($x, $y, $w, $h, function (int $idx, float $fx, float $fy, int $x, int $y) use (
-            $paint, $alpha, $mode, $useClip
-        ): void {
-            $src = $paint->isConstant() ? $paint->constant() : $paint->colorAt($x + 0.5, $y + 0.5);
-            $a = min(1.0, $src[3] * $alpha * $fx * $fy);
-            if ($a <= 0.0 && $mode === 'source-over') {
-                return;
+        if ($w < 0.0) {
+            $x += $w;
+            $w = -$w;
+        }
+        if ($h < 0.0) {
+            $y += $h;
+            $h = -$h;
+        }
+        if ($w <= 0.0 || $h <= 0.0) {
+            return;
+        }
+        $x0 = (int) floor($x);
+        $x1 = (int) ceil($x + $w) - 1;
+        $y0 = (int) floor($y);
+        $y1 = (int) ceil($y + $h) - 1;
+        if ($x1 < 0 || $y1 < 0 || $x0 > $this->width - 1 || $y0 > $this->height - 1) {
+            return;
+        }
+        $clip = $useClip ? $this->clip : null;
+        $constant = $paint->isConstant() ? $paint->constant() : null;
+        $over = $mode === 'source-over';
+        $px = &$this->px;
+        for ($py = max(0, $y0); $py <= min($this->height - 1, $y1); $py++) {
+            $cy = min($y + $h, (float) ($py + 1)) - max($y, (float) $py);
+            if ($cy <= 0.0) {
+                continue;
             }
-            if ($useClip && $this->clip !== null) {
-                $cm = \ord($this->clip[$idx]);
-                if ($cm === 0) {
-                    return;
+            $base = $py * $this->width;
+            $rowY = $py + 0.5;
+            for ($qx = max(0, $x0); $qx <= min($this->width - 1, $x1); $qx++) {
+                $cx = min($x + $w, (float) ($qx + 1)) - max($x, (float) $qx);
+                if ($cx <= 0.0) {
+                    continue;
                 }
-                if ($cm < 255) {
-                    $a = min(1.0, $a * $cm / 255);
+                $idx = $base + $qx;
+                $src = $constant ?? $paint->colorAt($qx + 0.5, $rowY);
+                $a = min(1.0, $src[3] * $alpha * $cx * $cy);
+                if ($a <= 0.0 && $over) {
+                    continue;
                 }
+                if ($clip !== null) {
+                    $cm = \ord($clip[$idx]);
+                    if ($cm === 0) {
+                        continue;
+                    }
+                    if ($cm < 255) {
+                        $a = min(1.0, $a * $cm / 255);
+                    }
+                }
+                if ($over) {
+                    $px[$idx] = $a >= 1.0
+                        ? (self::byte($src[0]) << 24) | (self::byte($src[1]) << 16) | (self::byte($src[2]) << 8) | 0xFF
+                        : self::overPixel($px[$idx], $src[0], $src[1], $src[2], $a);
+                    continue;
+                }
+                $this->blendAt($py, $qx, $src[0], $src[1], $src[2], $a, $mode);
             }
-            $this->blendAt($y, $x, $src[0], $src[1], $src[2], $a, $mode);
-        });
+        }
     }
 
     /** Clear to transparent black, honouring no other drawing state. */
@@ -391,51 +442,6 @@ final class Surface
                     continue;
                 }
                 $this->fadeAlpha($py, $px, $cm / 255);
-            }
-        }
-    }
-
-    /**
-     * Visit every pixel an axis-aligned device rectangle touches.
-     *
-     * @param callable(int,float,float,int,int):void $fn  (index, coverageX, coverageY, x, y)
-     */
-    private function rectRegion(float $x, float $y, float $w, float $h, callable $fn): void
-    {
-        if ($w < 0.0) {
-            $x += $w;
-            $w = -$w;
-        }
-        if ($h < 0.0) {
-            $y += $h;
-            $h = -$h;
-        }
-        if ($w <= 0.0 || $h <= 0.0) {
-            return;
-        }
-        $x0 = (int) floor($x);
-        $x1 = (int) ceil($x + $w) - 1;
-        $y0 = (int) floor($y);
-        $y1 = (int) ceil($y + $h) - 1;
-        if ($x1 < 0 || $y1 < 0 || $x0 > $this->width - 1 || $y0 > $this->height - 1) {
-            return;
-        }
-        for ($py = max(0, $y0); $py <= min($this->height - 1, $y1); $py++) {
-            $top = max($y, (float) $py);
-            $bottom = min($y + $h, (float) ($py + 1));
-            $cy = $bottom - $top;
-            if ($cy <= 0.0) {
-                continue;
-            }
-            $base = $py * $this->width;
-            for ($px = max(0, $x0); $px <= min($this->width - 1, $x1); $px++) {
-                $left = max($x, (float) $px);
-                $right = min($x + $w, (float) ($px + 1));
-                $cx = $right - $left;
-                if ($cx <= 0.0) {
-                    continue;
-                }
-                $fn($base + $px, $cx, $cy, $px, $py);
             }
         }
     }
@@ -480,6 +486,10 @@ final class Surface
     {
         $i = $y * $this->width + $x;
         $p = $this->px[$i];
+        if ($mode === 'source-over') {
+            $this->px[$i] = self::overPixel($p, $sr, $sg, $sb, $sa);
+            return;
+        }
         $dst = [($p >> 24) / 255, (($p >> 16) & 0xFF) / 255, (($p >> 8) & 0xFF) / 255, ($p & 0xFF) / 255];
         $out = Compositing::composite($mode, [$sr, $sg, $sb, $sa], $dst);
         $this->px[$i] = (self::byte($out[0]) << 24) | (self::byte($out[1]) << 16) | (self::byte($out[2]) << 8) | self::byte($out[3]);
@@ -669,73 +679,122 @@ final class Surface
                 $quad[] = $c['y'];
             }
         }
+        $ia = $inv->a;
+        $ib = $inv->b;
+        $ic = $inv->c;
+        $id = $inv->d;
+        $ie = $inv->e;
+        $if = $inv->f;
+        $sp = $src->px;
+        $over = $mode === 'source-over';
+        $px = &$this->px;
         for ($y = $y0; $y <= $y1; $y++) {
             $base = $y * $this->width;
+            $cy = $y + 0.5;
             for ($x = $x0; $x <= $x1; $x++) {
                 $idx = $base + $x;
                 if ($clip !== null && \ord($clip[$idx]) === 0) {
                     continue;
                 }
-                $u = $inv->mapPoint($x + 0.5, $y + 0.5);
-                $sx = $u['x'] - 0.5;
-                $sy = $u['y'] - 0.5;
+                $cx = $x + 0.5;
+                $sx = $ia * $cx + $ic * $cy + $ie - 0.5;
+                $sy = $ib * $cx + $id * $cy + $if - 0.5;
+                $edge = 1.0;
                 if ($snap) {
                     // One source pixel to one device pixel: no filter, no edge
                     // fading — a browser copies the pixels untouched.
-                    $color = self::sampleNearest($src, $sx, $sy, $sw, $sh);
-                    if ($color === null || $color[3] <= 0.0) {
+                    $ix = (int) floor($sx + 0.5);
+                    $iy = (int) floor($sy + 0.5);
+                    $ok = $ix >= 0 && $iy >= 0 && $ix < $sw && $iy < $sh;
+                    if ($ok) {
+                        $p = $sp[$iy * $sw + $ix];
+                        $ok = ($p & 0xFF) !== 0;
+                    }
+                    if (!$ok) {
                         if ($beyond) {
                             $this->blendAt($y, $x, 0.0, 0.0, 0.0, 0.0, $mode);
                         }
                         continue;
                     }
-                    $a = min(1.0, $color[3] * $alpha);
-                    if ($clip !== null) {
-                        $cm = \ord($clip[$idx]);
-                        if ($cm < 255) {
-                            $a = min(1.0, $a * $cm / 255);
+                    $cr = ($p >> 24) / 255;
+                    $cg = (($p >> 16) & 0xFF) / 255;
+                    $cb = (($p >> 8) & 0xFF) / 255;
+                    $ca = ($p & 0xFF) / 255;
+                } else {
+                    // A sample exactly on the edge of the source rectangle belongs
+                    // to no pixel: a filtered draw leaves it out.
+                    $ok = !($sx <= $rx0 - 0.5 || $sy <= $ry0 - 0.5 || $sx >= $rx1 - 0.5 || $sy >= $ry1 - 0.5);
+                    if ($ok && $smooth) {
+                        $bx = (int) floor($sx);
+                        $by = (int) floor($sy);
+                        $fx = $sx - $bx;
+                        $fy = $sy - $by;
+                        $cr = $cg = $cb = $ca = 0.0;
+                        for ($k = 0; $k < 4; $k++) {
+                            $dx = $k & 1;
+                            $w = ($dx === 0 ? 1 - $fx : $fx) * ($k < 2 ? 1 - $fy : $fy);
+                            if ($w <= 0.0) {
+                                continue;
+                            }
+                            $tx = min($sw - 1, max(0, $bx + $dx));
+                            $ty = min($sh - 1, max(0, $by + ($k >> 1)));
+                            $p = $sp[$ty * $sw + $tx];
+                            // Premultiplied interpolation, so transparent edges do
+                            // not bleed their colour into neighbours.
+                            $pa = ($p & 0xFF) / 255;
+                            $cr += ($p >> 24) / 255 * $pa * $w;
+                            $cg += (($p >> 16) & 0xFF) / 255 * $pa * $w;
+                            $cb += (($p >> 8) & 0xFF) / 255 * $pa * $w;
+                            $ca += $pa * $w;
+                        }
+                        if ($ca <= 0.0) {
+                            $ok = false;
+                        } else {
+                            $cr /= $ca;
+                            $cg /= $ca;
+                            $cb /= $ca;
+                            if ($ca > 1.0) {
+                                $ca = 1.0;
+                            }
+                        }
+                    } elseif ($ok) {
+                        $ix = (int) floor($sx + 0.5);
+                        $iy = (int) floor($sy + 0.5);
+                        $ok = $ix >= 0 && $iy >= 0 && $ix < $sw && $iy < $sh;
+                        if ($ok) {
+                            $p = $sp[$iy * $sw + $ix];
+                            $cr = ($p >> 24) / 255;
+                            $cg = (($p >> 16) & 0xFF) / 255;
+                            $cb = (($p >> 8) & 0xFF) / 255;
+                            $ca = ($p & 0xFF) / 255;
+                            $ok = $ca > 0.0;
                         }
                     }
-                    $this->blendAt($y, $x, $color[0], $color[1], $color[2], $a, $mode);
-                    continue;
-                }
-                // A sample exactly on the edge of the source rectangle belongs
-                // to no pixel: a filtered draw leaves it out.
-                if ($sx <= $rx0 - 0.5 || $sy <= $ry0 - 0.5 || $sx >= $rx1 - 0.5 || $sy >= $ry1 - 0.5) {
-                    if ($beyond) {
-                        $this->blendAt($y, $x, 0.0, 0.0, 0.0, 0.0, $mode);
+                    if ($ok && $quad !== []) {
+                        $edge = self::quadCoverage($x, $y, $quad);
+                        $ok = $edge > 0.0;
                     }
-                    continue;
-                }
-                $color = $smooth
-                    ? self::sampleBilinear($src, $sx, $sy, $sw, $sh)
-                    : self::sampleNearest($src, $sx, $sy, $sw, $sh);
-                if ($color === null || $color[3] <= 0.0) {
-                    // Transparent source still has a result for modes that see
-                    // past the shape, so it must not be skipped for them.
-                    if ($beyond) {
-                        $this->blendAt($y, $x, 0.0, 0.0, 0.0, 0.0, $mode);
-                    }
-                    continue;
-                }
-                $edge = 1.0;
-                if ($quad !== []) {
-                    $edge = self::quadCoverage($x, $y, $quad);
-                    if ($edge <= 0.0) {
+                    if (!$ok) {
+                        // Transparent source still has a result for modes that see
+                        // past the shape, so it must not be skipped for them.
                         if ($beyond) {
                             $this->blendAt($y, $x, 0.0, 0.0, 0.0, 0.0, $mode);
                         }
                         continue;
                     }
                 }
-                $a = min(1.0, $color[3] * $alpha * $edge);
+                $a = min(1.0, $ca * $alpha * $edge);
                 if ($clip !== null) {
                     $cm = \ord($clip[$idx]);
                     if ($cm < 255) {
                         $a = min(1.0, $a * $cm / 255);
                     }
                 }
-                $this->blendAt($y, $x, $color[0], $color[1], $color[2], $a, $mode);
+                if ($over) {
+                    $px[$idx] = self::overPixel($px[$idx], $cr, $cg, $cb, $a);
+                } else {
+                    $this->blendAt($y, $x, $cr, $cg, $cb, $a, $mode);
+                }
             }
         }
     }
@@ -911,60 +970,6 @@ final class Surface
             $n = $c1 - $c0;
             array_splice($this->px, $ty * $this->width + $dx + $c0, $n, array_slice($src->px, $row * $src->width + $c0, $n));
         }
-    }
-
-    /** @return ?array{0:float,1:float,2:float,3:float} */
-    private static function sampleNearest(Surface $src, float $x, float $y, int $sw, int $sh): ?array
-    {
-        // Coordinates here are pixel centres, so the nearest pixel is the one
-        // whose centre is closest.
-        $ix = (int) floor($x + 0.5);
-        $iy = (int) floor($y + 0.5);
-        if ($ix < 0 || $iy < 0 || $ix >= $sw || $iy >= $sh) {
-            return null;
-        }
-        return $src->getPixel($ix, $iy);
-    }
-
-    /** @return ?array{0:float,1:float,2:float,3:float} */
-    private static function sampleBilinear(Surface $src, float $x, float $y, int $sw, int $sh): ?array
-    {
-        $x0 = (int) floor($x);
-        $y0 = (int) floor($y);
-        $fx = $x - $x0;
-        $fy = $y - $y0;
-
-        $r = 0.0;
-        $g = 0.0;
-        $b = 0.0;
-        $a = 0.0;
-        $found = false;
-        for ($dy = 0; $dy <= 1; $dy++) {
-            // Clamp to the edge rather than treat it as transparent: a filter
-            // reaching past the border of an image reads the border pixel, and
-            // the weights then still add to one.
-            $sy = min($sh - 1, max(0, $y0 + $dy));
-            for ($dx = 0; $dx <= 1; $dx++) {
-                $sx = min($sw - 1, max(0, $x0 + $dx));
-                $c = $src->getPixel($sx, $sy);
-                $w = ($dx === 0 ? 1 - $fx : $fx) * ($dy === 0 ? 1 - $fy : $fy);
-                if ($w <= 0.0) {
-                    continue;
-                }
-                $found = true;
-                // Premultiplied interpolation, so transparent edges do not
-                // bleed their colour into neighbours.
-                $r += $c[0] * $c[3] * $w;
-                $g += $c[1] * $c[3] * $w;
-                $b += $c[2] * $c[3] * $w;
-                $a += $c[3] * $w;
-                $found = true;
-            }
-        }
-        if (!$found || $a <= 0.0) {
-            return null;
-        }
-        return [$r / $a, $g / $a, $b / $a, min(1.0, $a)];
     }
 
     private static function alphaIsOpaqueSafe(string $mode): bool

@@ -148,15 +148,20 @@ final class Paint
             return [0.0, 0.0, 0.0, 0.0];
         }
 
-        $user = $this->deviceToUser !== null
-            ? $this->deviceToUser->mapPoint($deviceX, $deviceY)
-            : ['x' => $deviceX, 'y' => $deviceY];
-
-        if ($this->pattern !== null) {
-            return $this->pattern->colorAt($user['x'], $user['y']);
+        $m = $this->deviceToUser;
+        if ($m !== null) {
+            $ux = $m->a * $deviceX + $m->c * $deviceY + $m->e;
+            $uy = $m->b * $deviceX + $m->d * $deviceY + $m->f;
+        } else {
+            $ux = $deviceX;
+            $uy = $deviceY;
         }
 
-        return $this->gradientColor($user['x'], $user['y']);
+        if ($this->pattern !== null) {
+            return $this->pattern->colorAt($ux, $uy);
+        }
+
+        return $this->gradientColor($ux, $uy);
     }
 
     /** @return array{0:float,1:float,2:float,3:float} */
@@ -222,7 +227,8 @@ final class Paint
     }
 
     /**
-     * Interpolate the stop list at t (pad: clamped to the end stops).
+     * Interpolate the stop list at t (pad: clamped to the end stops), then
+     * undo the premultiplication.
      *
      * @return array{0:float,1:float,2:float,3:float}
      */
@@ -233,42 +239,38 @@ final class Paint
         if ($n === 0) {
             return [0.0, 0.0, 0.0, 0.0];
         }
-        if ($t <= $stops[0][0]) {
-            return self::unpremultiply($stops[0][1], $stops[0][2], $stops[0][3], $stops[0][4]);
-        }
         $last = $stops[$n - 1];
-        if ($t >= $last[0]) {
-            return self::unpremultiply($last[1], $last[2], $last[3], $last[4]);
-        }
-
-        for ($i = 0; $i < $n - 1; $i++) {
-            $s0 = $stops[$i];
-            $s1 = $stops[$i + 1];
-            if ($t >= $s0[0] && $t <= $s1[0]) {
-                $range = $s1[0] - $s0[0];
-                $f = $range > 0.0 ? ($t - $s0[0]) / $range : 1.0;
-                return self::unpremultiply(
-                    $s0[1] + ($s1[1] - $s0[1]) * $f,
-                    $s0[2] + ($s1[2] - $s0[2]) * $f,
-                    $s0[3] + ($s1[3] - $s0[3]) * $f,
-                    $s0[4] + ($s1[4] - $s0[4]) * $f,
-                );
+        if ($t <= $stops[0][0]) {
+            [, $pr, $pg, $pb, $a] = $stops[0];
+        } elseif ($t >= $last[0]) {
+            [, $pr, $pg, $pb, $a] = $last;
+        } else {
+            [, $pr, $pg, $pb, $a] = $last;
+            for ($i = 0; $i < $n - 1; $i++) {
+                $s0 = $stops[$i];
+                $s1 = $stops[$i + 1];
+                if ($t >= $s0[0] && $t <= $s1[0]) {
+                    $range = $s1[0] - $s0[0];
+                    $f = $range > 0.0 ? ($t - $s0[0]) / $range : 1.0;
+                    $pr = $s0[1] + ($s1[1] - $s0[1]) * $f;
+                    $pg = $s0[2] + ($s1[2] - $s0[2]) * $f;
+                    $pb = $s0[3] + ($s1[3] - $s0[3]) * $f;
+                    $a = $s0[4] + ($s1[4] - $s0[4]) * $f;
+                    break;
+                }
             }
         }
-        return self::unpremultiply($last[1], $last[2], $last[3], $last[4]);
-    }
-
-    /** @return array{0:float,1:float,2:float,3:float} */
-    private static function unpremultiply(float $pr, float $pg, float $pb, float $a): array
-    {
         if ($a <= 0.0) {
             return [0.0, 0.0, 0.0, 0.0];
         }
+        $r = $pr / $a;
+        $g = $pg / $a;
+        $b = $pb / $a;
         return [
-            max(0.0, min(1.0, $pr / $a)),
-            max(0.0, min(1.0, $pg / $a)),
-            max(0.0, min(1.0, $pb / $a)),
-            max(0.0, min(1.0, $a)),
+            $r < 0.0 ? 0.0 : ($r > 1.0 ? 1.0 : $r),
+            $g < 0.0 ? 0.0 : ($g > 1.0 ? 1.0 : $g),
+            $b < 0.0 ? 0.0 : ($b > 1.0 ? 1.0 : $b),
+            $a > 1.0 ? 1.0 : $a,
         ];
     }
 }
