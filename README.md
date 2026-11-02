@@ -35,6 +35,16 @@ patterns, text placement — is implemented in this package in plain PHP.
 JPEG. No GD primitive draws anything, so a different codec, or a pure-PHP
 encoder, can be dropped in without touching the semantics.
 
+### Pixel format
+
+A `Surface` is a flat PHP int array, one int per pixel, in GD's truecolor
+format: `0xAARRGGBB` with alpha 0 = opaque .. 127 = transparent, so pixels cross
+into and out of GD (`fromGd()`, `toGd()`, PNG/JPEG) without conversion. Alpha
+therefore has 7 bits; `getImageData()`/`putImageData()`/`toPixels()` still speak
+8-bit RGBA and stretch alpha through lookup tables, so translucent results can
+differ from a browser by a step or two. GD is used to decode and encode, and to
+rasterise glyphs (`TextRaster`), whose pixels are composited as they are.
+
 | File | Role |
 | --- | --- |
 | `Context.php` | the `CanvasRenderingContext2D` API, state and property rules |

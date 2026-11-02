@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.2]
+Pixels are stored in GD's truecolor format, so nothing is converted when they
+cross into or out of GD. This is an internal change: the public API is
+unchanged. Alpha now has 7 bits instead of 8 (ImageData still reads and writes
+8-bit alpha, stretched through lookup tables).
+
+### Changed
+- `Surface` holds one int per pixel as 0xAARRGGBB with alpha 0 = opaque ..
+  127 = transparent. Source-over blends in that 7-bit domain with an exact
+  integer division by 127. `rawPixel()`, `clonePixels()` and `setPixels()` use
+  the same GD ints
+- `GdCodec` no longer remaps alpha. Measured at 640x480: `imagecolorat` loop
+  18 ms out, `imagesetpixel` loop 11.5 ms in (the bulk route through
+  `imagegd2()` is not available: common PHP builds are compiled without GD/GD2
+  format support)
+- `bin/conformance`: still 335/336; 31 cases moved by at most 1.5 points (see
+  the commit message). `graph-frame` 30.3 -> 28.0 ms, `mixed-frame`
+  492 -> 480 ms
+
 ## [0.2.1]
 Rendering is much faster with the same output. A 416x320 graph frame
 (`php benchmarks/graph-frame.php .`) went from 220 ms to 28.5 ms, and a 640x480
