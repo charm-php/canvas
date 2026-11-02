@@ -274,7 +274,7 @@ class Canvas
             // One pixel per dot (a canvas rasterised at the dot grid): the pixel's own
             // coverage decides, with no block to average.
             foreach ($px as $p) {
-                if ($p >= 0x40000000) {
+                if ($p > 0x40000000) {       // alpha 64 is a half-covered pixel rounded up: on
                     $on .= "\0";
                     $rgb .= "\0\0\0";
                 } else {
@@ -342,7 +342,7 @@ class Canvas
                 // A dot is on when at least half of its block is covered, so an
                 // antialiased edge does not spread one dot outwards; its colour is
                 // the coverage-weighted mean of the covered pixels.
-                if ($weight < ($y1 - $y0) * ($x1 - $x0) / 2) {
+                if ($weight < ($y1 - $y0) * ($x1 - $x0) * 63 / 127) {    // (half, as the 7-bit alpha rounds it)
                     $dot = ["\0", "\0\0\0"];
                 } else {
                     $dot = ["\1", \chr((int) round($r / $weight * 255))
