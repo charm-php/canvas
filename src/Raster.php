@@ -27,11 +27,11 @@ final class Raster
      * @param int $width   surface width in pixels (bounds the work)
      * @param int $height  surface height in pixels
      * @param int $samples vertical samples per pixel row (>= 1)
-     * @param callable(int, array<int,float>, int, int, int, int):void $rowFn
-     *        receives (row index, coverage map keyed by absolute column, minX, maxX, fullMinX, fullMaxX)
-     *        where fullMinX..fullMaxX is an inclusive run of fully covered
-     *        columns (empty when fullMinX > fullMaxX).  The map holds every
-     *        other covered column and omits the columns of that run.
+     * @param callable(int, array<int,float>, int, int, list<array{0:int,1:int}>):void $rowFn
+     *        receives (row index, coverage map keyed by absolute column, minX, maxX, runs)
+     *        where each run is an inclusive [from, to] range of fully covered
+     *        columns.  The map holds every other covered column and omits the
+     *        columns of the runs.
      */
     public static function walk(
         array $polygons,
@@ -202,17 +202,11 @@ final class Raster
             $cov = [];
             $level = 0;
             $prev = -1;
-            $runFrom = 1;
-            $runTo = 0;
-            $fullGaps = [];
+            $runs = [];
             foreach ($keys as $k) {
                 if ($level > 0 && $k - 1 > $prev) {
                     if ($level >= $samples) {
-                        $fullGaps[] = [$prev + 1, $k - 1];
-                        if ($k - 1 - $prev > $runTo - $runFrom + 1) {
-                            $runFrom = $prev + 1;
-                            $runTo = $k - 1;
-                        }
+                        $runs[] = [$prev + 1, $k - 1];
                     } else {
                         $v = $level * $inv;
                         for ($c = $prev + 1; $c < $k; $c++) {
@@ -227,17 +221,8 @@ final class Raster
                 }
                 $prev = $k;
             }
-            // Full runs other than the longest are handed over per cell.
-            foreach ($fullGaps as [$from, $to]) {
-                if ($from === $runFrom) {
-                    continue;
-                }
-                for ($c = $from; $c <= $to; $c++) {
-                    $cov[$c] = 1.0;
-                }
-            }
 
-            $rowFn($y, $cov, $keys[0], $prev, $runFrom, $runTo);
+            $rowFn($y, $cov, $keys[0], $prev, $runs);
         }
     }
 

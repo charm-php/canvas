@@ -129,14 +129,16 @@ final class Surface
         $w = $this->width;
         $h = $this->height;
         Raster::walk($polygons, $rule, $w, $h, $this->verticalSamples,
-            function (int $y, array $cov, int $minX, int $maxX, int $fullMin, int $fullMax) use (&$w): void {
+            function (int $y, array $cov, int $minX, int $maxX, array $runs) use (&$w): void {
                 if ($y < 0 || $y >= $this->height) {
                     return;
                 }
                 $base = $y * $w;
                 $clip = $this->clip;
-                for ($x = max(0, $fullMin); $x <= $fullMax && $x < $w; $x++) {
-                    $cov[$x] = 1.0;
+                foreach ($runs as [$from, $to]) {
+                    for ($x = max(0, $from); $x <= $to && $x < $w; $x++) {
+                        $cov[$x] = 1.0;
+                    }
                 }
                 foreach ($cov as $x => $coverage) {
                     if ($x < 0 || $x >= $w || $coverage <= 0.0) {
@@ -164,15 +166,17 @@ final class Surface
         // A clip mask is built once and reused for every later draw, so it is
         // worth sampling it more finely than a single fill.
         Raster::walk($polygons, $rule, $w, $h, max($this->verticalSamples, 16),
-            function (int $y, array $cov, int $minX, int $maxX, int $fullMin, int $fullMax) use (&$bytes, $w, $h): void {
+            function (int $y, array $cov, int $minX, int $maxX, array $runs) use (&$bytes, $w, $h): void {
                 if ($y < 0 || $y >= $h) {
                     return;
                 }
                 $base = $y * $w;
-                $from = max(0, $fullMin);
-                $to = min($w - 1, $fullMax);
-                if ($from <= $to) {
-                    $bytes = substr_replace($bytes, str_repeat("\xFF", $to - $from + 1), $base + $from, $to - $from + 1);
+                foreach ($runs as [$from, $to]) {
+                    $from = max(0, $from);
+                    $to = min($w - 1, $to);
+                    if ($from <= $to) {
+                        $bytes = substr_replace($bytes, str_repeat("\xFF", $to - $from + 1), $base + $from, $to - $from + 1);
+                    }
                 }
                 foreach ($cov as $x => $c) {
                     if ($x < 0 || $x >= $w || $c <= 0.0) {
@@ -223,7 +227,7 @@ final class Surface
             : \chr(self::byte($constant[0])) . \chr(self::byte($constant[1])) . \chr(self::byte($constant[2]));
 
         Raster::walk($polygons, $rule, $w, $h, $this->verticalSamples,
-            function (int $y, array $cov, int $minX, int $maxX, int $fullMin, int $fullMax) use (
+            function (int $y, array $cov, int $minX, int $maxX, array $runs) use (
                 $w, $h, $clip, $constant, $rgb, $alpha, $mode, $paint
             ): void {
                 if ($y < 0 || $y >= $h) {
@@ -233,10 +237,10 @@ final class Surface
                 $rowY = $y + 0.5;
 
                 $over = $mode === 'source-over';
-                if ($fullMin <= $fullMax) {
-                    // The run is fully covered: every column has coverage 1.
-                    $from = max(0, $fullMin);
-                    $to = min($w - 1, $fullMax);
+                foreach ($runs as [$from, $to]) {
+                    // A run is fully covered: every column has coverage 1.
+                    $from = max(0, $from);
+                    $to = min($w - 1, $to);
                     if ($over && $constant !== null && $clip === null) {
                         $this->overRun($y, $from, $to, $constant[0], $constant[1], $constant[2], min(1.0, $constant[3] * $alpha), $rgb);
                     } else {
@@ -290,10 +294,12 @@ final class Surface
         $h = $this->height;
         $rows = [];
         Raster::walk($polygons, $rule, $w, $h, $this->verticalSamples,
-            function (int $y, array $cov, int $minX, int $maxX, int $fullMin, int $fullMax) use (&$rows): void {
+            function (int $y, array $cov, int $minX, int $maxX, array $runs) use (&$rows): void {
                 if ($y >= 0 && $y < $this->height) {
-                    for ($x = max(0, $fullMin); $x <= $fullMax; $x++) {
-                        $cov[$x] = 1.0;
+                    foreach ($runs as [$from, $to]) {
+                        for ($x = max(0, $from); $x <= $to; $x++) {
+                            $cov[$x] = 1.0;
+                        }
                     }
                     $rows[$y] = $cov;
                 }
