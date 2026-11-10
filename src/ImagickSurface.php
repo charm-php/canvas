@@ -451,7 +451,9 @@ final class ImagickSurface implements RendererInterface
     {
         $img->setImageAlphaChannel(\Imagick::ALPHACHANNEL_ACTIVATE);
         $img->setImageVirtualPixelMethod($virtual);
-        $img->setImageInterpolateMethod($smooth ? \Imagick::INTERPOLATE_BILINEAR : \Imagick::INTERPOLATE_NEARESTNEIGHBOR);
+        // ImageMagick 6 builds of ext-imagick call it NEARESTNEIGHBOR, ImageMagick 7 builds NEAREST_PIXEL (another value)
+        $nearest = \defined('Imagick::INTERPOLATE_NEARESTNEIGHBOR') ? \Imagick::INTERPOLATE_NEARESTNEIGHBOR : \constant('Imagick::INTERPOLATE_NEAREST_PIXEL');
+        $img->setImageInterpolateMethod($smooth ? \Imagick::INTERPOLATE_BILINEAR : $nearest);
         $img->setImageArtifact('distort:viewport', "{$w}x{$h}+{$x0}+{$y0}");
         // Three control points (source -> device) define the affine map.
         $tx = $m->e;
