@@ -5,7 +5,7 @@
          colors="true"
          beStrictAboutOutputDuringTests="true">
     <testsuites>
-        <testsuite name="phasync/canvas">
+        <testsuite name="charm/canvas">
             <directory>tests</directory>
         </testsuite>
     </testsuites>

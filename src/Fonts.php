@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
 /**
  * Font specification parsing, family resolution and advance-width metrics.

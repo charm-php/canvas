@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance;
+namespace Charm\Canvas\Conformance;
 
 /**
  * Numeric comparison between the library's pixels and the browser's pixels.

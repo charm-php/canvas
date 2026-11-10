@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
 /**
  * The 2D rendering context: the HTML CanvasRenderingContext2D surface.

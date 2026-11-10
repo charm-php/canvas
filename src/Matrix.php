@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
 /**
  * A 2D affine transform, matching the HTML canvas matrix

@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
 /**
  * Represents a gradient (linear or radial) for use with fillStyle/strokeStyle.

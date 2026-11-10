@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance\Cases;
+namespace Charm\Canvas\Conformance\Cases;
 
 /**
  * Path construction, fill rules and subpath semantics.

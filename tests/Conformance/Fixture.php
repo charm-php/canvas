@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance;
+namespace Charm\Canvas\Conformance;
 
 /**
  * Deterministic image fixtures shared by both engines: PHP loads the PNG file,

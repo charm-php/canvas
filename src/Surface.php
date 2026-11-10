@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
 /**
  * An RGBA pixel buffer with the rasterisation semantics of HTML canvas.

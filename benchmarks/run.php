@@ -19,13 +19,13 @@ if (in_array('--jit', $argv, true) && !getenv('BENCH_JIT')) {
 }
 require dirname(__DIR__) . '/vendor/autoload.php';
 if (($r = getenv('CANVAS_RENDERER')) !== false && $r !== '') {
-    \phasync\Canvas\Canvas::$renderer = $r;
+    \Charm\Canvas\Canvas::$renderer = $r;
 }
 require __DIR__ . '/' . $name . '-frame.php';
-$ns = 'phasync\\Canvas\\Bench\\' . $names[$name];
+$ns = 'Charm\\Canvas\\Bench\\' . $names[$name];
 if (in_array('--hash', $argv, true)) {
     echo md5(serialize(($ns . 'frame')(0)->toPixels())), "\n";
     exit(0);
 }
 $ms = ($ns . 'run')(10, 10);
-printf("%s %s %s: %.1f ms/frame\n", $name, \phasync\Canvas\Canvas::rendererName(), getenv('BENCH_JIT') ? 'jit' : 'interp', $ms);
+printf("%s %s %s: %.1f ms/frame\n", $name, \Charm\Canvas\Canvas::rendererName(), getenv('BENCH_JIT') ? 'jit' : 'interp', $ms);

@@ -1,10 +1,10 @@
-# phasync/canvas
+# charm/canvas
 
 The browser's 2D canvas API for PHP. Draw with `CanvasRenderingContext2D` calls and
 export PNG or JPEG — no browser, no headless Chrome, no native drawing library.
 
 ```php
-use phasync\Canvas\Canvas;
+use Charm\Canvas\Canvas;
 
 $canvas = new Canvas(400, 300);
 $ctx = $canvas->getContext('2d');
@@ -105,7 +105,7 @@ Google Chrome — and compares the resulting pixels:
 
 ```
 $ bin/conformance
-phasync/canvas conformance  (Google Chrome 144.0.7559.109)
+charm/canvas conformance  (Google Chrome 144.0.7559.109)
 ──────────────────────────────────────────────────────────────────────────
   335/336 passing (99.7%) in 0.9s   (1 documented divergence)
 ```
@@ -131,7 +131,7 @@ looser ones existing only where a measurement is written next to them.
 ## Installation
 
 ```bash
-composer require phasync/canvas
+composer require charm/canvas
 ```
 
 PHP 8.2+ with `ext-gd`. With `ext-imagick` installed it is used for decoding and

@@ -2,7 +2,7 @@
 <?php declare(strict_types=1);
 
 /**
- * Conformance report: compares phasync/canvas against real Chrome.
+ * Conformance report: compares charm/canvas against real Chrome.
  *
  *   bin/conformance                 # summary
  *   bin/conformance --tag clip      # one group
@@ -15,10 +15,10 @@ $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
 if (($r = getenv('CANVAS_RENDERER')) !== false && $r !== '') {
-    \phasync\Canvas\Canvas::$renderer = $r;
+    \Charm\Canvas\Canvas::$renderer = $r;
 }
 
-use phasync\Canvas\Conformance\Runner;
+use Charm\Canvas\Conformance\Runner;
 
 $argvv = array_slice($argv, 1);
 $filter = null;
@@ -43,7 +43,7 @@ for ($i = 0; $i < count($argvv); $i++) {
     } elseif ($a === '--dump') {
         $dump = $argvv[++$i] ?? null;
     } elseif (str_starts_with($a, '--renderer=')) {
-        \phasync\Canvas\Canvas::$renderer = substr($a, 11);
+        \Charm\Canvas\Canvas::$renderer = substr($a, 11);
     } elseif ($a === '--list') {
         $list = true;
     } elseif ($a === '--all') {
@@ -55,7 +55,7 @@ for ($i = 0; $i < count($argvv); $i++) {
 }
 
 if ($dump !== null) {
-    echo \phasync\Canvas\Conformance\Runner::dump($dump);
+    echo \Charm\Canvas\Conformance\Runner::dump($dump);
     exit(0);
 }
 
@@ -100,7 +100,7 @@ foreach ($results as $r) {
 }
 
 $total = $pass + $fail + count($known);
-printf("\nphasync/canvas conformance  (%s)\n", $run['chrome']);
+printf("\ncharm/canvas conformance  (%s)\n", $run['chrome']);
 printf("%s\n", str_repeat('─', 72));
 printf("  %3d/%3d passing (%.1f%%) in %.1fs%s\n", $pass, $total, $total ? $pass / $total * 100 : 0, $run['duration'],
     $known === [] ? '' : sprintf('   (%d documented divergence%s)', count($known), count($known) === 1 ? '' : 's'));
@@ -166,7 +166,7 @@ if ($fails) {
         foreach (explode("\n", $r['map']) as $line) {
             echo '  │ ' . $line . "\n";
         }
-        echo "  │ legend: '-' agree  '#' differ  '+' only phasync painted  '.' only chrome painted  ' ' empty\n";
+        echo "  │ legend: '-' agree  '#' differ  '+' only charm/canvas painted  '.' only chrome painted  ' ' empty\n";
         echo "  └\n";
     }
 }

@@ -1,9 +1,9 @@
 <?php
 // A 640x480 frame: gradient fill, translucent ellipse, clip, a photo scaled
 // and rotated, some text.  Library: run via `php benchmarks/run.php mixed [--jit]`.
-namespace phasync\Canvas\Bench\Mixed;
+namespace Charm\Canvas\Bench\Mixed;
 
-use phasync\Canvas\Canvas;
+use Charm\Canvas\Canvas;
 
 /** A deterministic 200x150 "photo": smooth colour plus fixed-seed noise. */
 function photo(): \GdImage

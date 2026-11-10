@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance;
+namespace Charm\Canvas\Conformance;
 
 /**
  * The conformance case list: op programs that must draw identically to Chrome.

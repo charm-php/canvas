@@ -4,5 +4,5 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 // CANVAS_RENDERER=php|imagick picks the renderer for the whole test run.
 if (($renderer = getenv('CANVAS_RENDERER')) !== false && $renderer !== '') {
-    \phasync\Canvas\Canvas::$renderer = $renderer;
+    \Charm\Canvas\Canvas::$renderer = $renderer;
 }

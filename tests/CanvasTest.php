@@ -1,10 +1,10 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Tests;
+namespace Charm\Canvas\Tests;
 
-use phasync\Canvas\Canvas;
-use phasync\Canvas\Context;
-use phasync\Canvas\Surface;
+use Charm\Canvas\Canvas;
+use Charm\Canvas\Context;
+use Charm\Canvas\Surface;
 use PHPUnit\Framework\TestCase;
 
 /**

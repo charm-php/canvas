@@ -1,9 +1,9 @@
 <?php
 // A 416x320 line graph (stroked axes, filled area, stroked curve) reduced to
 // 104x80 braille dots.  Library: run via `php benchmarks/run.php graph [--jit]`.
-namespace phasync\Canvas\Bench\Graph;
+namespace Charm\Canvas\Bench\Graph;
 
-use phasync\Canvas\Canvas;
+use Charm\Canvas\Canvas;
 
 function frame(int $k): Canvas
 {

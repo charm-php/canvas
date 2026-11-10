@@ -1,5 +1,5 @@
 {
-  "name": "phasync/canvas",
+  "name": "charm/canvas",
   "description": "The browser's 2D canvas API for PHP, over GD or Imagick",
   "type": "library",
   "license": "MIT",
@@ -21,13 +21,13 @@
   },
   "autoload": {
     "psr-4": {
-      "phasync\\Canvas\\": "src/"
+      "Charm\\Canvas\\": "src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "phasync\\Canvas\\Tests\\": "tests/",
-      "phasync\\Canvas\\Conformance\\": "tests/Conformance/"
+      "Charm\\Canvas\\Tests\\": "tests/",
+      "Charm\\Canvas\\Conformance\\": "tests/Conformance/"
     }
   }
 }

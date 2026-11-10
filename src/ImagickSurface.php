@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
 /**
  * A renderer whose pixels live in an Imagick image (8-bit RGBA, straight

@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance\Cases;
+namespace Charm\Canvas\Conformance\Cases;
 
 /**
  * drawImage, getImageData/putImageData, text metrics/rendering, hit testing.

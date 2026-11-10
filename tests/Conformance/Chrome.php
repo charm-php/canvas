@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance;
+namespace Charm\Canvas\Conformance;
 
 /**
  * The oracle: runs op programs in a real Chrome canvas and returns the pixels
@@ -76,7 +76,7 @@ final class Chrome
         }
 
         $html = $this->buildHtml($cases);
-        $tmp = sys_get_temp_dir() . '/phasync-conf-' . getmypid() . '-' . bin2hex(random_bytes(4));
+        $tmp = sys_get_temp_dir() . '/charm-canvas-conf-' . getmypid() . '-' . bin2hex(random_bytes(4));
         mkdir($tmp, 0700, true);
         $page = $tmp . '/page.html';
         file_put_contents($page, $html);

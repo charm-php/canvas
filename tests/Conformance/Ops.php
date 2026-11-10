@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance;
+namespace Charm\Canvas\Conformance;
 
 /**
  * A single "op program" is the canonical description of one conformance case.
@@ -16,7 +16,7 @@ namespace phasync\Canvas\Conformance;
 final class Ops
 {
     /**
-     * Execute an op program against a phasync\Canvas\Canvas instance.
+     * Execute an op program against a Charm\Canvas\Canvas instance.
      *
      * @param array<int,array{0:string}> $ops
      * @return array{ok: bool, error: ?string}

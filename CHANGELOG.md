@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0]
+### Changed
+- The package moved from phasync/canvas to charm/canvas, and the namespace from
+  `phasync\Canvas` to `Charm\Canvas`. It never depended on phasync. Nothing
+  else changed; phasync/canvas will be marked abandoned in favour of this package.
+
 ## [0.2.5]
 ### Fixed
 - `getImageData()` and `putImageData()` took about a second each on a 400x440
@@ -221,7 +227,7 @@ listed as a documented divergence with the reason.
 
 ## [0.1.0] - 2026-11-01
 ### Added
-- Initial release of phasync/canvas
+- Initial release of charm/canvas
 - Canvas class with GD and Imagick backend support
 - Context class implementing browser Canvas 2D API
 - Support for paths, shapes, text, images, and transformations

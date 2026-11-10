@@ -1,10 +1,10 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Tests;
+namespace Charm\Canvas\Tests;
 
-use phasync\Canvas\Canvas;
-use phasync\Canvas\ImagickSurface;
-use phasync\Canvas\Surface;
+use Charm\Canvas\Canvas;
+use Charm\Canvas\ImagickSurface;
+use Charm\Canvas\Surface;
 use PHPUnit\Framework\TestCase;
 
 /** The PHP and Imagick renderers must agree, within antialiasing noise. */

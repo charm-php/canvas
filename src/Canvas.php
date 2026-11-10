@@ -1,9 +1,9 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas;
+namespace Charm\Canvas;
 
-use phasync\Canvas\Codec\CodecInterface;
-use phasync\Canvas\Codec\GdCodec;
+use Charm\Canvas\Codec\CodecInterface;
+use Charm\Canvas\Codec\GdCodec;
 
 /**
  * A drawing surface: the canvas element of the browser model.

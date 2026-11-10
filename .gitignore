@@ -3,3 +3,4 @@ composer.lock
 .phpunit.result.cache
 tests/Conformance/.oracle-cache.json
 tests/Conformance/Fixtures/
+/.phpunit.cache/

@@ -1,8 +1,8 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Conformance;
+namespace Charm\Canvas\Conformance;
 
-use phasync\Canvas\Canvas;
+use Charm\Canvas\Canvas;
 
 /**
  * Runs the conformance suite: every op program is executed by the library and

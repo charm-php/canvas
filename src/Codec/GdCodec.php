@@ -1,10 +1,10 @@
 <?php declare(strict_types=1);
 
-namespace phasync\Canvas\Codec;
+namespace Charm\Canvas\Codec;
 
-use phasync\Canvas\NotSupportedException;
-use phasync\Canvas\RendererInterface;
-use phasync\Canvas\Surface;
+use Charm\Canvas\NotSupportedException;
+use Charm\Canvas\RendererInterface;
+use Charm\Canvas\Surface;
 
 /**
  * GD-backed import/export.
