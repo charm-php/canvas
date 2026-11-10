@@ -26,6 +26,17 @@ $ctx->stroke();
 file_put_contents('chart.png', $canvas->toPng());
 ```
 
+## Faster than ImageMagick
+
+Every pixel is computed in plain PHP, and it is faster than ImageMagick drawing the same frames through ext-imagick. The comparison uses this package's own two renderers, which draw identical scenes and match Chrome's output:
+
+| Frame (PHP 8.5) | PHP renderer, JIT | ImageMagick 6 | |
+|---|---|---|---|
+| Chart: three filled, stroked shapes | **13 ms** | 172 ms | 13x faster |
+| Mixed: gradient, ellipse, clip, two images | **138 ms** | 281 ms | 2x faster |
+
+Without the JIT the PHP renderer is still about 7x faster on the chart. ImageMagick only wins on image- and gradient-heavy frames (mixed: 287 ms for ImageMagick against 434 ms for PHP), because that work happens inside its C code. Reproduce with `php benchmarks/run.php graph|mixed [--jit]`, with `CANVAS_RENDERER=imagick` for the ImageMagick numbers.
+
 ## What this is made of
 
 Everything that decides what a pixel looks like — the CTM, path flattening,
