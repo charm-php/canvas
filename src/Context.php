@@ -994,7 +994,7 @@ class Context
             return (new Codec\GdCodec())->fromImagick($image);
         }
         if (\is_string($image)) {
-            if (\strlen($image) < 4096 && \is_file($image) && \is_readable($image)) {
+            if (\strlen($image) < 4096 && !\str_contains($image, "\0") && \is_file($image) && \is_readable($image)) {
                 $bytes = \file_get_contents($image);
                 return $bytes === false ? null : (new Codec\GdCodec())->decode($bytes);
             }
